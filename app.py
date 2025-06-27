@@ -42,34 +42,39 @@ def create_finger_processor():
         def __init__(self):
             self.processor = hands
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-            img = frame.to_ndarray(format="bgr24")
-            H, W, _ = img.shape
-            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            res = self.processor.process(rgb)
-            if res.multi_hand_landmarks:
-                for hl in res.multi_hand_landmarks:
-                    mp_drawing.draw_landmarks(
-                        img, hl, mp_hands.HAND_CONNECTIONS,
-                        mp_styles.get_default_hand_landmarks_style(),
-                        mp_styles.get_default_hand_connections_style()
-                    )
-                    xs = [lm.x for lm in hl.landmark]
-                    ys = [lm.y for lm in hl.landmark]
-                    data = []
-                    for x, y in zip(xs, ys):
-                        data += [x - min(xs), y - min(ys)]
-                    char = ''
-                    if len(data) == 42:
-                        p = finger_model.predict([np.array(data)])[0]
-                        char = labels_dict[int(p)]
-                    x1, y1 = int(min(xs)*W)-10, int(min(ys)*H)-10
-                    x2, y2 = int(max(xs)*W)+10, int(max(ys)*H)+10
-                    cv2.rectangle(img, (x1,y1), (x2,y2), (0,0,0), 4)
-                    cv2.putText(
-                        img, char, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX,
-                        1.3, (0,0,0), 3, cv2.LINE_AA
-                    )
-            return av.VideoFrame.from_ndarray(img, format="bgr24")
+            try:
+                img = frame.to_ndarray(format="bgr24")
+                H, W, _ = img.shape
+                rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                res = self.processor.process(rgb)
+                if res.multi_hand_landmarks:
+                    for hl in res.multi_hand_landmarks:
+                        mp_drawing.draw_landmarks(
+                            img, hl, mp_hands.HAND_CONNECTIONS,
+                            mp_styles.get_default_hand_landmarks_style(),
+                            mp_styles.get_default_hand_connections_style()
+                        )
+                        xs = [lm.x for lm in hl.landmark]
+                        ys = [lm.y for lm in hl.landmark]
+                        data = []
+                        for x, y in zip(xs, ys):
+                            data += [x - min(xs), y - min(ys)]
+                        char = ''
+                        if len(data) == 42:
+                            p = finger_model.predict([np.array(data)])[0]
+                            char = labels_dict[int(p)]
+                        x1, y1 = int(min(xs)*W)-10, int(min(ys)*H)-10
+                        x2, y2 = int(max(xs)*W)+10, int(max(ys)*H)+10
+                        cv2.rectangle(img, (x1,y1), (x2,y2), (0,0,0), 4)
+                        cv2.putText(
+                            img, char, (x1, y1-10), cv2.FONT_HERSHEY_SIMPLEX,
+                            1.3, (0,0,0), 3, cv2.LINE_AA
+                        )
+                return av.VideoFrame.from_ndarray(img, format="bgr24")
+            except Exception as e:
+                print("🔥 Error in recv():", e)
+                # Show a basic frame so the app doesn't crash
+                return frame   
     return FingerProcessor
 
 # Processor for dynamic ASL sequence detection
@@ -86,29 +91,34 @@ def create_dynamic_processor():
             self.last_text = ""
             self.display_count = 0
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
-            img = frame.to_ndarray(format="bgr24")
-            rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-            results = self.holistic.process(rgb)
-            landmarks = asl.extract_landmarks(img)
-            if landmarks is not None:
-                self.buffer.append(landmarks)
-                img = asl.draw_landmarks(img, landmarks)
-            # When enough frames collected, predict and set text
-            if len(self.buffer) >= self.max_frames:
-                sign, conf = asl.predict_sign(self.buffer, asl.model, asl.device)
-                self.last_text = f"{sign} ({conf*100:.1f}%)"
-                self.display_count = self.max_frames  # show text for next max_frames frames
-                self.buffer.clear()
-            # Draw last_text if within display window
-            if self.display_count > 0:
-                cv2.putText(
-                    img, self.last_text,
-                    (10, img.shape[0] - 30),
-                    cv2.FONT_HERSHEY_SIMPLEX, 1.0,
-                    (0, 255, 0), 2, cv2.LINE_AA
-                )
-                self.display_count -= 1
-            return av.VideoFrame.from_ndarray(img, format="bgr24")
+            try:
+                img = frame.to_ndarray(format="bgr24")
+                rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+                results = self.holistic.process(rgb)
+                landmarks = asl.extract_landmarks(img)
+                if landmarks is not None:
+                    self.buffer.append(landmarks)
+                    img = asl.draw_landmarks(img, landmarks)
+                # When enough frames collected, predict and set text
+                if len(self.buffer) >= self.max_frames:
+                    sign, conf = asl.predict_sign(self.buffer, asl.model, asl.device)
+                    self.last_text = f"{sign} ({conf*100:.1f}%)"
+                    self.display_count = self.max_frames  # show text for next max_frames frames
+                    self.buffer.clear()
+                # Draw last_text if within display window
+                if self.display_count > 0:
+                    cv2.putText(
+                        img, self.last_text,
+                        (10, img.shape[0] - 30),
+                        cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                        (0, 255, 0), 2, cv2.LINE_AA
+                    )
+                    self.display_count -= 1
+                return av.VideoFrame.from_ndarray(img, format="bgr24")
+            except Exception as e:
+                print("🔥 Error in recv():", e)
+                # Show a basic frame so the app doesn't crash
+                return frame 
     return DynamicProcessor
 
 # UI select mode
