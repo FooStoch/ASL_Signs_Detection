@@ -123,7 +123,7 @@ def create_dynamic_processor():
 mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
 
 # STUN server configuration
-rtc_conf = {"iceServers": []}
+rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
 if mode == "Fingerspelling":
     webrtc_streamer(
