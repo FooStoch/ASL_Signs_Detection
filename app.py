@@ -1,5 +1,6 @@
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
+from streamlit_audiorecorder import audiorecorder
 import av
 import cv2
 import pickle
@@ -191,11 +192,12 @@ with right_col:
         f"border:1px solid #ccc;padding:4px;'>{chat_html}</div>",
         unsafe_allow_html=True
     )
-    audio_file = st.file_uploader(
-        "🎤 Upload or record audio", type=["wav","mp3"], key="audio"
-    )
-    if audio_file:
+    st.markdown("#### 🎤 Speak (hold or press toggle)")
+    audio_bytes = audiorecorder("Start/Stop Recording", key="recorder")
+
+    if audio_bytes:
         with st.spinner("Transcribing…"):
-            text = transcribe_audio(audio_file.read())
-        st.session_state.chat_history.append({"sender":"Hearing","message":text})
+            # audio_bytes is a WAV file in bytes
+            text = transcribe_audio(audio_bytes)
+        st.session_state.chat_history.append({"sender":"Hearing", "message": text})
         st.experimental_rerun()
