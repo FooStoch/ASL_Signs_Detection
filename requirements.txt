@@ -1,5 +1,6 @@
 numpy==1.26.4
 opencv-python-headless==4.7.0.68
+opencv-contrib-python-headless==4.7.0.68
 mediapipe==0.10.21
 scikit-learn==1.4.0
 streamlit==1.29.0
