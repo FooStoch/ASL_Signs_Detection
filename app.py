@@ -72,8 +72,7 @@ def create_finger_processor():
                         )
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
             except Exception as e:
-                print("🔥 Error in recv():", e)
-                # Show a basic frame so the app doesn't crash
+                import traceback; traceback.print_exc()
                 return frame   
     return FingerProcessor
 
@@ -116,8 +115,7 @@ def create_dynamic_processor():
                     self.display_count -= 1
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
             except Exception as e:
-                print("🔥 Error in recv():", e)
-                # Show a basic frame so the app doesn't crash
+                import traceback; traceback.print_exc()
                 return frame 
     return DynamicProcessor
 
@@ -125,14 +123,17 @@ def create_dynamic_processor():
 mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
 
 # STUN server configuration
-rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+rtc_conf = {"iceServers": []}
 
 if mode == "Fingerspelling":
     webrtc_streamer(
         key="finger",
         mode=WebRtcMode.SENDRECV,
         video_processor_factory=create_finger_processor(),
-        media_stream_constraints={"video": True, "audio": False},
+        media_stream_constraints={
+            "video": {"frameRate": {"ideal": 10, "max": 15}},
+            "audio": False
+        },
         async_processing=True,
         rtc_configuration=rtc_conf
     )
@@ -141,7 +142,10 @@ else:
         key="dynamic",
         mode=WebRtcMode.SENDRECV,
         video_processor_factory=create_dynamic_processor(),
-        media_stream_constraints={"video": True, "audio": False},
+        media_stream_constraints={
+            "video": {"frameRate": {"ideal": 10, "max": 15}},
+            "audio": False
+        },
         async_processing=True,
         rtc_configuration=rtc_conf
     )
