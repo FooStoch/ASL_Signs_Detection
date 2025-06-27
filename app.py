@@ -76,7 +76,6 @@ def create_finger_processor():
 def create_dynamic_processor():
     class DynamicProcessor(VideoProcessorBase):
         def __init__(self):
-            # use holistic from asl_inference
             self.holistic = asl.mp_holistic.Holistic(
                 static_image_mode=False,
                 min_detection_confidence=0.7,
@@ -84,30 +83,39 @@ def create_dynamic_processor():
             )
             self.buffer = []
             self.max_frames = 30
+            self.last_text = ""
+            self.display_count = 0
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
             img = frame.to_ndarray(format="bgr24")
             rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             results = self.holistic.process(rgb)
-            # use correct extract_landmarks from asl_inference
             landmarks = asl.extract_landmarks(img)
             if landmarks is not None:
                 self.buffer.append(landmarks)
                 img = asl.draw_landmarks(img, landmarks)
-            # when buffer full, predict
+            # When enough frames collected, predict and set text
             if len(self.buffer) >= self.max_frames:
                 sign, conf = asl.predict_sign(self.buffer, asl.model, asl.device)
-                text = f"{sign} ({conf*100:.1f}%)"
-                # clear buffer
+                self.last_text = f"{sign} ({conf*100:.1f}%)"
+                self.display_count = self.max_frames  # show text for next max_frames frames
                 self.buffer.clear()
+            # Draw last_text if within display window
+            if self.display_count > 0:
                 cv2.putText(
-                    img, text, (10, img.shape[0]-30), cv2.FONT_HERSHEY_SIMPLEX,
-                    1.0, (255,0,0), 2, cv2.LINE_AA
+                    img, self.last_text,
+                    (10, img.shape[0] - 30),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1.0,
+                    (0, 255, 0), 2, cv2.LINE_AA
                 )
+                self.display_count -= 1
             return av.VideoFrame.from_ndarray(img, format="bgr24")
     return DynamicProcessor
 
 # UI select mode
 mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
+
+# STUN server configuration
+rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
 if mode == "Fingerspelling":
     webrtc_streamer(
@@ -116,11 +124,7 @@ if mode == "Fingerspelling":
         video_processor_factory=create_finger_processor(),
         media_stream_constraints={"video": True, "audio": False},
         async_processing=True,
-        rtc_configuration={
-          "iceServers": [
-              {"urls": ["stun:stun.l.google.com:19302"]}
-          ]
-        }
+        rtc_configuration=rtc_conf
     )
 else:
     webrtc_streamer(
@@ -128,10 +132,6 @@ else:
         mode=WebRtcMode.SENDRECV,
         video_processor_factory=create_dynamic_processor(),
         media_stream_constraints={"video": True, "audio": False},
-        async_processing=True, 
-        rtc_configuration={
-          "iceServers": [
-              {"urls": ["stun:stun.l.google.com:19302"]}
-          ]
-        }
+        async_processing=True,
+        rtc_configuration=rtc_conf
     )
