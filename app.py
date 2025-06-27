@@ -14,6 +14,11 @@ import time
 st.set_page_config(page_title="EchoSign", layout="wide")
 st.title("EchoSign")
 
+if "recording_audio" not in st.session_state:
+    st.session_state.recording_audio = False
+if "audio_frames" not in st.session_state:
+    st.session_state.audio_frames = []
+
 # Initialize chat history
 if "chat_history" not in st.session_state:
     st.session_state.chat_history = []
@@ -59,7 +64,7 @@ class AudioCapture(AudioProcessorBase):
     def recv(self, frame):
         pcm = frame.to_ndarray()
         self.frames.append(pcm)
-        return None  # no playback
+        return None
 
 # Mediapipe for static
 mp_hands = mp.solutions.hands
@@ -167,26 +172,17 @@ with left_col:
             rtc_configuration=rtc_conf
         )
     else:
-        # Audio capture buttons
-        if "recording" not in st.session_state:
-            st.session_state.recording = False
-        if st.button("🎤 Start Recording"):
-            st.session_state.recording = True
-            st.session_state.audio_ctx = webrtc_streamer(
-                key="audio", mode=WebRtcMode.SENDRECV,
-                audio_processor_factory=lambda: AudioProcessor(),
-                media_stream_constraints={"video": False, "audio": True},
-                async_processing=True,
-                rtc_configuration=rtc_conf
-            )
-        if st.button("⏹️ Stop Recording") and st.session_state.recording:
-            st.session_state.recording = False
-            ctx = st.session_state.audio_ctx
-            frames = ctx.audio_receiver.get_frames(timeout=1)
-            raw = b"".join(f.to_ndarray().tobytes() for f in frames)
-            text = transcribe_audio(raw)
-            st.session_state.chat_history.append({"sender":"Hearing","message":text})
-            st.experimental_rerun()
+        webrtc_streamer(
+            key="dynamic",
+            mode=WebRtcMode.SENDRECV,
+            video_processor_factory=create_dynamic_processor(),
+            media_stream_constraints={
+                "video": {"frameRate": {"ideal": 10, "max": 15}},
+                "audio": False
+            },
+            async_processing=True,
+            rtc_configuration=rtc_conf
+        )
 
 with right_col:
     st.subheader("Chat")
@@ -202,3 +198,33 @@ with right_col:
         f"border:1px solid #ccc;padding:4px;'>{chat_html}</div>",
         unsafe_allow_html=True
     )
+
+    st.markdown("### 🎤 Record Response")
+    col1, col2 = st.columns([1, 1])
+    with col1:
+        if st.button("Start Speaking"):
+            st.session_state.recording_audio = True
+            st.session_state.audio_frames = []
+    with col2:
+        if st.button("Stop"):
+            st.session_state.recording_audio = False
+            if st.session_state.audio_frames:
+                import soundfile as sf
+                import io
+                audio_io = io.BytesIO()
+                sf.write(audio_io, np.concatenate(st.session_state.audio_frames), 16000, format='WAV')
+                audio_io.seek(0)
+                with st.spinner("Transcribing..."):
+                    text = transcribe_audio(audio_io.read())
+                    st.session_state.chat_history.append({'sender': 'Hearing', 'message': text})
+                st.session_state.audio_frames = []
+                st.experimental_rerun()
+
+    if st.session_state.recording_audio:
+        webrtc_streamer(
+            key="audio-chat",
+            mode=WebRtcMode.SENDONLY,
+            audio_processor_factory=AudioCapture,
+            media_stream_constraints={"audio": True, "video": False},
+            async_processing=True,
+        )
