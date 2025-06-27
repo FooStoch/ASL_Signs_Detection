@@ -72,7 +72,6 @@ def create_finger_processor():
                         )
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
             except Exception as e:
-                import traceback; traceback.print_exc()
                 return frame   
     return FingerProcessor
 
@@ -115,7 +114,6 @@ def create_dynamic_processor():
                     self.display_count -= 1
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
             except Exception as e:
-                import traceback; traceback.print_exc()
                 return frame 
     return DynamicProcessor
 
