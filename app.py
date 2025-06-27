@@ -151,7 +151,7 @@ def create_dynamic_processor():
 
 # Layout
 left_col, right_col = st.columns([2,1])
-rtc_conf = {"iceServers": []}
+rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
 with left_col:
     mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
