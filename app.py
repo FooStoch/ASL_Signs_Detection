@@ -202,23 +202,33 @@ with right_col:
     st.markdown("### 🎤 Record Response")
     col1, col2 = st.columns([1, 1])
     with col1:
-        if st.button("Start Speaking"):
-            st.session_state.recording_audio = True
+        if st.button("🎤 Start Recording"):
+            st.session_state.recording = True
             st.session_state.audio_frames = []
+            def factory():
+                cap = AudioCapture()
+                st.session_state.audio_cap = cap
+                return cap
+            st.session_state.audio_ctx = webrtc_streamer(
+                key="audio",
+                mode=WebRtcMode.SENDRECV,
+                audio_processor_factory=factory,
+                media_stream_constraints={"video": False, "audio": True},
+                async_processing=True,
+                rtc_configuration=rtc_conf
+            )
     with col2:
-        if st.button("Stop"):
-            st.session_state.recording_audio = False
-            if st.session_state.audio_frames:
-                import soundfile as sf
-                import io
-                audio_io = io.BytesIO()
-                sf.write(audio_io, np.concatenate(st.session_state.audio_frames), 16000, format='WAV')
-                audio_io.seek(0)
-                with st.spinner("Transcribing..."):
-                    text = transcribe_audio(audio_io.read())
-                    st.session_state.chat_history.append({'sender': 'Hearing', 'message': text})
+        if st.button("⏹️ Stop Recording") and st.session_state.recording:
+            st.session_state.recording = False
+            cap = st.session_state.get("audio_cap", None)
+            if cap and cap.frames:
+                raw_audio = b"".join(f.tobytes() for f in cap.frames)
+                text = transcribe_audio(raw_audio)
+                st.session_state.chat_history.append({"sender": "Hearing", "message": text})
                 st.session_state.audio_frames = []
                 st.experimental_rerun()
+            else:
+                st.warning("No audio captured.")
 
     if st.session_state.recording_audio:
         webrtc_streamer(
