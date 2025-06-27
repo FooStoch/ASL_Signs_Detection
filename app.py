@@ -1,6 +1,5 @@
 import streamlit as st
-from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
-from streamlit_audiorecorder import audiorecorder
+from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode, AudioProcessorBase
 import av
 import cv2
 import pickle
@@ -49,10 +48,18 @@ finger_model = load_finger_model()
 @st.cache_resource
 def load_dynamic_model():
     import asl_inference
-    # Ensure device is CPU
     asl_inference.device = torch.device("cpu")
     return asl_inference
 asl = load_dynamic_model()
+
+# Audio capture processor
+class AudioCapture(AudioProcessorBase):
+    def __init__(self):
+        self.frames = []
+    def recv(self, frame):
+        pcm = frame.to_ndarray()
+        self.frames.append(pcm)
+        return None  # no playback
 
 # Mediapipe for static
 mp_hands = mp.solutions.hands
@@ -125,7 +132,6 @@ def create_dynamic_processor():
                 if landmarks is not None:
                     self.buffer.append(landmarks)
                     img = asl.draw_landmarks(img, landmarks)
-                # once buffer full, predict
                 if len(self.buffer) >= self.max_frames:
                     sign, conf = asl.predict_sign(self.buffer, asl.model, asl.device)
                     self.last_text = f"{sign} ({conf*100:.1f}%)"
@@ -145,7 +151,7 @@ def create_dynamic_processor():
 
 # Layout
 left_col, right_col = st.columns([2,1])
-rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+rtc_conf = {"iceServers": []}
 
 with left_col:
     mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
@@ -161,43 +167,38 @@ with left_col:
             rtc_configuration=rtc_conf
         )
     else:
-        start = st.button("Start Dynamic Sign")
-        stop  = st.button("Stop Dynamic Sign")
-        if start: st.session_state.dynamic_on = True
-        if stop:  st.session_state.dynamic_on = False
-        if st.session_state.get("dynamic_on", False):
-            webrtc_streamer(
-                key="dynamic", mode=WebRtcMode.SENDRECV,
-                video_processor_factory=create_dynamic_processor(),
-                media_stream_constraints={
-                    "video": {"frameRate": {"ideal":10,"max":15}},
-                    "audio": False
-                },
+        # Audio capture buttons
+        if "recording" not in st.session_state:
+            st.session_state.recording = False
+        if st.button("🎤 Start Recording"):
+            st.session_state.recording = True
+            st.session_state.audio_ctx = webrtc_streamer(
+                key="audio", mode=WebRtcMode.SENDRECV,
+                audio_processor_factory=lambda: AudioProcessor(),
+                media_stream_constraints={"video": False, "audio": True},
                 async_processing=True,
                 rtc_configuration=rtc_conf
             )
+        if st.button("⏹️ Stop Recording") and st.session_state.recording:
+            st.session_state.recording = False
+            ctx = st.session_state.audio_ctx
+            frames = ctx.audio_receiver.get_frames(timeout=1)
+            raw = b"".join(f.to_ndarray().tobytes() for f in frames)
+            text = transcribe_audio(raw)
+            st.session_state.chat_history.append({"sender":"Hearing","message":text})
+            st.experimental_rerun()
 
 with right_col:
     st.subheader("Chat")
     chat_html = ""
     for msg in st.session_state.chat_history:
-        color = "#eef" if msg["sender"]=="Deaf" else "#ffe"
+        color = "#eef" if msg['sender']=="Deaf" else "#ffe"
         chat_html += (
-            f"<div style='background:{color};"
-            f"padding:8px;margin:4px;border-radius:4px;'>"
-            f"<b>{msg['sender']}:</b> {msg['message']}</div>"
+            f"<div style='background:{color};padding:8px;"
+            f"margin:4px;border-radius:4px;'><b>{msg['sender']}:</b> {msg['message']}</div>"
         )
     st.markdown(
         f"<div style='height:400px;overflow-y:auto;"
         f"border:1px solid #ccc;padding:4px;'>{chat_html}</div>",
         unsafe_allow_html=True
     )
-    st.markdown("#### 🎤 Speak (hold or press toggle)")
-    audio_bytes = audiorecorder("Start/Stop Recording", key="recorder")
-
-    if audio_bytes:
-        with st.spinner("Transcribing…"):
-            # audio_bytes is a WAV file in bytes
-            text = transcribe_audio(audio_bytes)
-        st.session_state.chat_history.append({"sender":"Hearing", "message": text})
-        st.experimental_rerun()
