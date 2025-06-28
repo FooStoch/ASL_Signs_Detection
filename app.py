@@ -27,7 +27,7 @@ def transcribe_audio(file_bytes):
     audio_url = upload_resp.json()["upload_url"]
     data = {"audio_url": audio_url, "speech_model": "universal"}
     transcript_resp = requests.post(BASE_URL + "/transcript", json=data, headers=HEADERS)
-    transcript_id = transcript_resp.json()["id"]
+    transcript_id = transcript_resp.json()['id']
     polling = BASE_URL + f"/transcript/{transcript_id}"
     while True:
         result = requests.get(polling, headers=HEADERS).json()
