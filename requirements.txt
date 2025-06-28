@@ -12,4 +12,4 @@ requests==2.31.0
 sounddevice==0.5.1
 
 pyaudio==0.2.14
-websocket==0.2.1
+websocket-client==1.8.0
