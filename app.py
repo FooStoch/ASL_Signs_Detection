@@ -115,49 +115,79 @@ class DynamicProcessor(VideoProcessorBase):
 global_stop = threading.Event()
 class AudioStreamingProcessor(AudioProcessorBase):
     def __init__(self):
-        # open WebSocket upfront
-        self.ws = websocket.WebSocketApp(API_ENDPOINT,
-                                         header={"Authorization": YOUR_API_KEY},
-                                         on_message=self.on_message)
-        threading.Thread(target=self.ws.run_forever, daemon=True).start()
-
-    def recv(self, frame: av.AudioFrame):
-        pcm = frame.to_ndarray()           # raw PCM from browser
-        self.ws.send(pcm.tobytes(), websocket.ABNF.OPCODE_BINARY)
-        return None
-
+        self.ws = websocket.WebSocketApp(
+            API_ENDPOINT,
+            header={"Authorization": YOUR_API_KEY},
+            on_message=self.on_message,
+            on_open=self.on_open,
+            on_error=self.on_error,
+            on_close=self.on_close
+        )
+        self.thread = threading.Thread(target=self.ws.run_forever, daemon=True)
+        self.thread.start()
+    def on_open(self, ws):
+        self.pa = pyaudio.PyAudio()
+        self.stream = self.pa.open(format=pyaudio.paInt16, channels=1,
+                                   rate=16000, input=True,
+                                   frames_per_buffer=800)
+        threading.Thread(target=self.send_audio, daemon=True).start()
+    def send_audio(self):
+        while not global_stop.is_set():
+            data = self.stream.read(800, exception_on_overflow=False)
+            self.ws.send(data, websocket.ABNF.OPCODE_BINARY)
     def on_message(self, ws, message):
         data = json.loads(message)
         if data.get("type")=="Turn" and data.get("turn_is_final"):
-            txt = data["transcript"].strip()
+            txt = data.get("transcript", "").strip()
             if txt:
                 st.session_state.chat_history.append({"sender":"Hearing","message":txt})
+    def on_error(self, ws, err):
+        global_stop.set()
+    def on_close(self, ws, *args):
+        global_stop.set()
+    def recv(self, frame):
+        return None
 
 # Layout
 left, right = st.columns([2,1])
-rtc_conf = {"iceServers":[{"urls":["stun:stun.l.google.com:19302"]}]}  
+rtc_conf = {"iceServers":[{"urls":["stun:stun.l.google.com:19302"]}]}
+
 with left:
     st.header("Sign Recognition")
     mode = st.selectbox("Choose Mode:", ["Fingerspelling","Dynamic Sign"])
     if mode=="Fingerspelling":
-        webrtc_streamer(key="fav", mode=WebRtcMode.SENDRECV,
-                        video_processor_factory=FingerProcessor,
-                        media_stream_constraints={"video":True},
-                        rtc_configuration=rtc_conf)
+        webrtc_streamer(
+            key="fav", mode=WebRtcMode.SENDRECV,
+            video_processor_factory=FingerProcessor,
+            media_stream_constraints={"video":True},
+            rtc_configuration=rtc_conf
+        )
     else:
-        webrtc_streamer(key="dyn", mode=WebRtcMode.SENDRECV,
-                        video_processor_factory=DynamicProcessor,
-                        media_stream_constraints={"video":True},
-                        rtc_configuration=rtc_conf)
+        webrtc_streamer(
+            key="dyn", mode=WebRtcMode.SENDRECV,
+            video_processor_factory=DynamicProcessor,
+            media_stream_constraints={"video":True},
+            rtc_configuration=rtc_conf
+        )
+
 with right:
     st.header("Voice to Chat")
-    webrtc_streamer(key="aud", mode=WebRtcMode.SENDRECV,
-                    audio_processor_factory=AudioStreamingProcessor,
-                    media_stream_constraints={"audio":True},
-                    rtc_configuration=rtc_conf)
+    # Built-in Start/Stop controls from WebRTC
+    webrtc_streamer(
+        key="aud", mode=WebRtcMode.SENDRECV,
+        audio_processor_factory=AudioStreamingProcessor,
+        media_stream_constraints={"audio":True},
+        rtc_configuration=rtc_conf
+    )
     st.subheader("Chat History")
     cb=""
     for m in st.session_state.chat_history:
-        c="#eef" if m['sender']=='Deaf' else '#ffe'
-        cb+=f"<div style='background:{c};padding:8px;margin:4px;border-radius:4px;'><b>{m['sender']}:</b> {m['message']}</div>"
-    st.markdown(f"<div style='height:400px;overflow-y:auto;border:1px solid #ccc;padding:4px;'>{cb}</div>",unsafe_allow_html=True)
+        color="#eef" if m['sender']=='Deaf' else '#ffe'
+        cb+=(
+            f"<div style='background:{color};padding:8px;"
+            f"margin:4px;border-radius:4px;'><b>{m['sender']}:</b> {m['message']}</div>"
+        )
+    st.markdown(
+        f"<div style='height:400px;overflow-y:auto;border:1px solid #ccc;padding:4px;'>{cb}</div>",
+        unsafe_allow_html=True
+    )
