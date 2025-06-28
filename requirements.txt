@@ -10,3 +10,6 @@ torch==2.5.1
 tqdm==4.67.1
 requests==2.31.0
 sounddevice==0.5.1
+
+pyaudio==0.2.14
+websocket==0.2.1
