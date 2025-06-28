@@ -115,38 +115,23 @@ class DynamicProcessor(VideoProcessorBase):
 global_stop = threading.Event()
 class AudioStreamingProcessor(AudioProcessorBase):
     def __init__(self):
-        self.ws = websocket.WebSocketApp(
-            API_ENDPOINT,
-            header={"Authorization": YOUR_API_KEY},
-            on_message=self.on_message,
-            on_open=self.on_open,
-            on_error=self.on_error,
-            on_close=self.on_close
-        )
-        self.thread = threading.Thread(target=self.ws.run_forever, daemon=True)
-        self.thread.start()
-    def on_open(self, ws):
-        self.pa = pyaudio.PyAudio()
-        self.stream = self.pa.open(format=pyaudio.paInt16, channels=1,
-                                   rate=16000, input=True,
-                                   frames_per_buffer=800)
-        threading.Thread(target=self.send_audio, daemon=True).start()
-    def send_audio(self):
-        while not global_stop.is_set():
-            data = self.stream.read(800, exception_on_overflow=False)
-            self.ws.send(data, websocket.ABNF.OPCODE_BINARY)
+        # open WebSocket upfront
+        self.ws = websocket.WebSocketApp(API_ENDPOINT,
+                                         header={"Authorization": YOUR_API_KEY},
+                                         on_message=self.on_message)
+        threading.Thread(target=self.ws.run_forever, daemon=True).start()
+
+    def recv(self, frame: av.AudioFrame):
+        pcm = frame.to_ndarray()           # raw PCM from browser
+        self.ws.send(pcm.tobytes(), websocket.ABNF.OPCODE_BINARY)
+        return None
+
     def on_message(self, ws, message):
         data = json.loads(message)
         if data.get("type")=="Turn" and data.get("turn_is_final"):
-            txt = data.get("transcript", "").strip()
+            txt = data["transcript"].strip()
             if txt:
                 st.session_state.chat_history.append({"sender":"Hearing","message":txt})
-    def on_error(self, ws, err):
-        global_stop.set()
-    def on_close(self, ws, *args):
-        global_stop.set()
-    def recv(self, frame):
-        return None
 
 # Layout
 left, right = st.columns([2,1])
