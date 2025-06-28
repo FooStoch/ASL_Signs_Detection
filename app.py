@@ -137,7 +137,7 @@ class AudioStreamingProcessor(AudioProcessorBase):
             self.ws.send(data, websocket.ABNF.OPCODE_BINARY)
     def on_message(self, ws, message):
         data = json.loads(message)
-        if data.get("type")=="Turn" and data.get("turn_is_final"):
+        if data.get("type") == "Turn":
             txt = data.get("transcript", "").strip()
             if txt:
                 st.session_state.chat_history.append({"sender":"Hearing","message":txt})
