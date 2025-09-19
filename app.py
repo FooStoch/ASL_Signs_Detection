@@ -261,23 +261,21 @@ with left_col:
 with right_col:
     st.markdown("### Speech-to-Text")
 
-    # Use the same component approach you provided (works if component is available)
-    # The component path approach expects the front-end under st_audiorec/frontend/build in the repo;
-    # if you installed the streamlit-audio-recorder via pip, you may instead import its helper.
+    # Prefer the installed package API (if available). If not, fall back to the local component build.
     try:
-        # prefer the installed package interface if present
-        import st_audiorec as installed_st_audiorec  # type: ignore
-        record_result = installed_st_audiorec()
+        # recommended usage from the component package
+        from st_audiorec import st_audiorec  # this should be provided by the pip/git package
+        record_result = st_audiorec()
     except Exception:
-        # fallback to declare_component with local path (your original approach)
+        # fallback to local component path (only works if st_audiorec/frontend/build exists in your repo)
         try:
-            st_audiorec = components.declare_component(
+            st_audiorec_comp = components.declare_component(
                 "st_audiorec", path="st_audiorec/frontend/build"
             )
-            record_result = st_audiorec()
-        except Exception:
+            record_result = st_audiorec_comp()
+        except Exception as e:
             record_result = None
-            st.warning("Audio recorder component not available. Install streamlit-audio-recorder or include the component frontend.")
+            st.warning("Audio recorder component not available. Install streamlit-audio-recorder (in requirements) or include the component frontend build. Error: {}".format(e))
 
     wav_bytes = None
 
@@ -341,4 +339,3 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
-
