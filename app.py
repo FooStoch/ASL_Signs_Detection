@@ -149,7 +149,7 @@ def create_dynamic_processor():
     return DynamicProcessor
 
 
-# ---- UI + robust switching logic + Start/Stop buttons below video ----
+# ---- UI + robust switching logic + callback-backed Start/Stop buttons below video ----
 
 # put the mode selector in the left column
 with left_col:
@@ -185,6 +185,23 @@ if st.session_state["current_mode"] is None:
 if st.session_state["switching"]:
     st.session_state["switching"] = False
 
+# callback functions for immediate button actions
+def start_fingerspelling():
+    st.session_state["playing_dynamic"] = False
+    st.session_state["playing_finger"] = True
+    st.session_state["current_mode"] = "Fingerspelling"
+
+def stop_fingerspelling():
+    st.session_state["playing_finger"] = False
+
+def start_dynamic():
+    st.session_state["playing_finger"] = False
+    st.session_state["playing_dynamic"] = True
+    st.session_state["current_mode"] = "Dynamic Sign"
+
+def stop_dynamic():
+    st.session_state["playing_dynamic"] = False
+
 # STUN server configuration
 rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
@@ -204,15 +221,12 @@ with left_col:
             desired_playing_state=st.session_state["playing_finger"],
         )
 
-        # Start / Stop buttons below the video
+        # Start / Stop buttons below the video using callbacks and fixed keys
         cols = st.columns([1, 1])
         with cols[0]:
-            if st.button("Start Fingerspelling"):
-                st.session_state["playing_dynamic"] = False
-                st.session_state["playing_finger"] = True
+            st.button("Start Fingerspelling", key="start_finger_btn", on_click=start_fingerspelling)
         with cols[1]:
-            if st.button("Stop Fingerspelling"):
-                st.session_state["playing_finger"] = False
+            st.button("Stop Fingerspelling", key="stop_finger_btn", on_click=stop_fingerspelling)
 
     else:
         webrtc_streamer(
@@ -228,15 +242,12 @@ with left_col:
             desired_playing_state=st.session_state["playing_dynamic"],
         )
 
-        # Start / Stop buttons below the video
+        # Start / Stop buttons below the video using callbacks and fixed keys
         cols = st.columns([1, 1])
         with cols[0]:
-            if st.button("Start Dynamic Sign"):
-                st.session_state["playing_finger"] = False
-                st.session_state["playing_dynamic"] = True
+            st.button("Start Dynamic Sign", key="start_dynamic_btn", on_click=start_dynamic)
         with cols[1]:
-            if st.button("Stop Dynamic Sign"):
-                st.session_state["playing_dynamic"] = False
+            st.button("Stop Dynamic Sign", key="stop_dynamic_btn", on_click=stop_dynamic)
 
 # Right column reserved for other UI (left intentionally minimal)
 with right_col:
