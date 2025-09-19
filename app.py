@@ -1,3 +1,4 @@
+# app.py
 import streamlit as st
 from streamlit_webrtc import webrtc_streamer, VideoProcessorBase, WebRtcMode
 import av
@@ -8,7 +9,7 @@ import mediapipe as mp
 import torch
 import os
 
-# Page config
+st.set_page_config(page_title="EchoSign")
 
 st.title("EchoSign")
 
@@ -19,42 +20,56 @@ left_col, right_col = st.columns([3, 1])
 def load_finger_model():
     model = pickle.load(open("model.p", "rb"))["model"]
     return model
+
 finger_model = load_finger_model()
 
-# Load dynamic ASL model module
+# Load dynamic ASL model module (asl_inference.py)
 @st.cache_resource
 def load_dynamic_module():
     import asl_inference
     return asl_inference
+
 asl = load_dynamic_module()
 
-# Setup Mediapipe for static
-mp_hands = mp.solutions.hands
-mp_drawing = mp.solutions.drawing_utils
-mp_styles = mp.solutions.drawing_styles
-hands = mp_hands.Hands(static_image_mode=False,
-                       max_num_hands=1,
-                       min_detection_confidence=0.3,
-                       min_tracking_confidence=0.3)
+# label dict for fingerspelling
 labels_dict = {i: chr(ord('A') + i) for i in range(26)}
+
 
 # Processor for static fingerspelling
 def create_finger_processor():
     class FingerProcessor(VideoProcessorBase):
         def __init__(self):
-            self.processor = hands
+            # create a fresh Hands instance per processor, and local drawing/style refs
+            self.mp_hands = mp.solutions.hands
+            self.mp_drawing = mp.solutions.drawing_utils
+            self.mp_styles = mp.solutions.drawing_styles
+            self.hands = self.mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=1,
+                min_detection_confidence=0.3,
+                min_tracking_confidence=0.3
+            )
+
+        def __del__(self):
+            # explicit cleanup to free native resources
+            try:
+                if hasattr(self, "hands") and self.hands:
+                    self.hands.close()
+            except Exception:
+                pass
+
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
             try:
                 img = frame.to_ndarray(format="bgr24")
                 H, W, _ = img.shape
                 rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                res = self.processor.process(rgb)
+                res = self.hands.process(rgb)
                 if res.multi_hand_landmarks:
                     for hl in res.multi_hand_landmarks:
-                        mp_drawing.draw_landmarks(
-                            img, hl, mp_hands.HAND_CONNECTIONS,
-                            mp_styles.get_default_hand_landmarks_style(),
-                            mp_styles.get_default_hand_connections_style()
+                        self.mp_drawing.draw_landmarks(
+                            img, hl, self.mp_hands.HAND_CONNECTIONS,
+                            self.mp_styles.get_default_hand_landmarks_style(),
+                            self.mp_styles.get_default_hand_connections_style()
                         )
                         xs = [lm.x for lm in hl.landmark]
                         ys = [lm.y for lm in hl.landmark]
@@ -73,14 +88,19 @@ def create_finger_processor():
                             1.3, (0,0,0), 3, cv2.LINE_AA
                         )
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
-            except Exception as e:
-                return frame   
+            except Exception:
+                # return original frame if anything goes wrong
+                return frame
+
     return FingerProcessor
+
 
 # Processor for dynamic ASL sequence detection
 def create_dynamic_processor():
     class DynamicProcessor(VideoProcessorBase):
         def __init__(self):
+            # create a fresh Holistic instance per processor to isolate native resources
+            # use asl.mp_holistic (module-level import inside asl_inference)
             self.holistic = asl.mp_holistic.Holistic(
                 static_image_mode=False,
                 min_detection_confidence=0.7,
@@ -90,11 +110,21 @@ def create_dynamic_processor():
             self.max_frames = 30
             self.last_text = ""
             self.display_count = 0
+
+        def __del__(self):
+            try:
+                if hasattr(self, "holistic") and self.holistic:
+                    self.holistic.close()
+            except Exception:
+                pass
+
         def recv(self, frame: av.VideoFrame) -> av.VideoFrame:
             try:
                 img = frame.to_ndarray(format="bgr24")
                 rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                results = self.holistic.process(rgb)
+                # we keep calling asl.extract_landmarks which uses its own MediaPipe processing
+                # here we still call Holistic (self.holistic) to align with earlier logic if needed
+                _ = self.holistic.process(rgb)  # ensure the processor's internal state is used
                 landmarks = asl.extract_landmarks(img)
                 if landmarks is not None:
                     self.buffer.append(landmarks)
@@ -115,17 +145,60 @@ def create_dynamic_processor():
                     )
                     self.display_count -= 1
                 return av.VideoFrame.from_ndarray(img, format="bgr24")
-            except Exception as e:
-                return frame 
+            except Exception:
+                return frame
+
     return DynamicProcessor
 
-# UI select mode
-with left_col: 
+
+# ---- UI + robust switching logic ----
+
+with left_col:
     mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
 
-    # STUN server configuration
-    rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+# session state flags for play state and switching
+if "playing_finger" not in st.session_state:
+    st.session_state["playing_finger"] = False
+if "playing_dynamic" not in st.session_state:
+    st.session_state["playing_dynamic"] = False
+if "current_mode" not in st.session_state:
+    st.session_state["current_mode"] = None
+if "switching" not in st.session_state:
+    st.session_state["switching"] = False
 
+# If user changed mode: request old streamer stop, mark switching, rerun to let teardown happen
+if st.session_state["current_mode"] is not None and st.session_state["current_mode"] != mode and not st.session_state["switching"]:
+    st.session_state["switching"] = True
+    # stop previous
+    if st.session_state["current_mode"] == "Fingerspelling":
+        st.session_state["playing_finger"] = False
+    else:
+        st.session_state["playing_dynamic"] = False
+    # start new
+    if mode == "Fingerspelling":
+        st.session_state["playing_finger"] = True
+    else:
+        st.session_state["playing_dynamic"] = True
+    st.session_state["current_mode"] = mode
+    st.experimental_rerun()
+
+# On first visit, set initial states
+if st.session_state["current_mode"] is None:
+    st.session_state["current_mode"] = mode
+    if mode == "Fingerspelling":
+        st.session_state["playing_finger"] = True
+    else:
+        st.session_state["playing_dynamic"] = True
+
+# Reset switching flag after rerun
+if st.session_state["switching"]:
+    st.session_state["switching"] = False
+
+# STUN server configuration
+rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+
+# show the correct streamer with desired_playing_state tied to session_state flags
+with left_col:
     if mode == "Fingerspelling":
         webrtc_streamer(
             key="finger",
@@ -136,7 +209,8 @@ with left_col:
                 "audio": False
             },
             async_processing=True,
-            rtc_configuration=rtc_conf
+            rtc_configuration=rtc_conf,
+            desired_playing_state=st.session_state["playing_finger"],
         )
     else:
         webrtc_streamer(
@@ -148,8 +222,9 @@ with left_col:
                 "audio": False
             },
             async_processing=True,
-            rtc_configuration=rtc_conf
+            rtc_configuration=rtc_conf,
+            desired_playing_state=st.session_state["playing_dynamic"],
         )
-    
-with right_col: 
+
+with right_col:
     st.write("Yay")
