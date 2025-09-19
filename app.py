@@ -11,13 +11,48 @@ import os
 import tempfile
 from io import BytesIO
 import streamlit.components.v1 as components
+import gc
+import time
 
 # --- Page config ---
 st.set_page_config(page_title="Computerpreter", layout="wide")
 st.title("Computerpreter")
 
-# --- Layout: left = video, right = speech-to-text, bottom = chat ---
+# optional CSS to let content expand more (keep if you used it before)
+st.markdown(
+    """
+    <style>
+    .appview-container .main .block-container{
+        max-width: 100% !important;
+        padding-left: 2rem;
+        padding-right: 2rem;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# --- Layout ---
+# left big, right narrow (you can change the ratio)
 left_col, right_col = st.columns([1, 1])
+
+# -------------------------
+# Initialize session_state keys for recorder re-mounting & flags
+# -------------------------
+if "recorder_key" not in st.session_state:
+    st.session_state["recorder_key"] = 0  # increment to remount recorder component
+if "playing_finger" not in st.session_state:
+    st.session_state["playing_finger"] = False
+if "playing_dynamic" not in st.session_state:
+    st.session_state["playing_dynamic"] = False
+if "current_mode" not in st.session_state:
+    st.session_state["current_mode"] = None
+if "switching" not in st.session_state:
+    st.session_state["switching"] = False
+if "chat_history" not in st.session_state:
+    st.session_state["chat_history"] = []
+if "audio_data" not in st.session_state:
+    st.session_state["audio_data"] = None
 
 # -------------------------
 # Models / cached resources
@@ -29,6 +64,7 @@ def load_finger_model():
 
 finger_model = load_finger_model()
 
+# dynamic/sign module (keeps its own model inside; needed for video)
 @st.cache_resource
 def load_dynamic_module():
     import asl_inference
@@ -36,11 +72,11 @@ def load_dynamic_module():
 
 asl = load_dynamic_module()
 
-# Whisper model loader (cached)
-@st.cache_resource
-def load_whisper_model():
+# ---- Whisper loader: DO NOT cache as resource to avoid permanently holding memory.
+# We load it on-demand inside the transcription handler and then delete it.
+def load_whisper_model_local(size="base"):
     import whisper
-    model = whisper.load_model("base")
+    model = whisper.load_model(size)
     return model
 
 # -------------------------
@@ -49,7 +85,7 @@ def load_whisper_model():
 labels_dict = {i: chr(ord('A') + i) for i in range(26)}
 
 # -------------------------
-# Video processors (unchanged logic with cleanup)
+# Video processors (with cleanup)
 # -------------------------
 def create_finger_processor():
     class FingerProcessor(VideoProcessorBase):
@@ -153,50 +189,19 @@ def create_dynamic_processor():
     return DynamicProcessor
 
 # -------------------------
-# Session state defaults for video switching and chat / audio
+# Session control helpers
 # -------------------------
-if "playing_finger" not in st.session_state:
+def stop_all_streams_and_rerun():
+    """Set playing flags to False, small pause and rerun so previous streams teardown."""
     st.session_state["playing_finger"] = False
-if "playing_dynamic" not in st.session_state:
     st.session_state["playing_dynamic"] = False
-if "current_mode" not in st.session_state:
-    st.session_state["current_mode"] = None
-if "switching" not in st.session_state:
-    st.session_state["switching"] = False
-
-# Chat history & audio holders
-if "chat_history" not in st.session_state:
-    # each entry is a dict: {"role": "user"/"system"/"transcript", "text": "..."}
-    st.session_state["chat_history"] = []
-if "audio_data" not in st.session_state:
-    st.session_state["audio_data"] = None
-
-# -------------------------
-# UI: left video + start/stop; right STT; bottom chat
-# -------------------------
-
-# --- Left column: video + start/stop ---
-with left_col:
-    mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
-
-# If user changed mode: stop previous streamer and let teardown happen
-if st.session_state["current_mode"] is not None and st.session_state["current_mode"] != mode and not st.session_state["switching"]:
-    st.session_state["switching"] = True
-    if st.session_state["current_mode"] == "Fingerspelling":
-        st.session_state["playing_finger"] = False
-    else:
-        st.session_state["playing_dynamic"] = False
-    st.session_state["current_mode"] = mode
+    # give threads/processes a moment to stop (helps webrtc teardown)
+    time.sleep(0.2)
     st.experimental_rerun()
-
-if st.session_state["current_mode"] is None:
-    st.session_state["current_mode"] = mode
-
-if st.session_state["switching"]:
-    st.session_state["switching"] = False
 
 # Callbacks used for buttons (immediate effect)
 def start_fingerspelling():
+    # stop other stream and start this one
     st.session_state["playing_dynamic"] = False
     st.session_state["playing_finger"] = True
     st.session_state["current_mode"] = "Fingerspelling"
@@ -212,8 +217,43 @@ def start_dynamic():
 def stop_dynamic():
     st.session_state["playing_dynamic"] = False
 
+# -------------------------
+# UI: left video + start/stop; right STT; bottom chat
+# -------------------------
+
+# --- Left column: video + start/stop ---
+with left_col:
+    mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
+
+# If user changed mode: stop previous streamer and let teardown happen
+if st.session_state["current_mode"] is not None and st.session_state["current_mode"] != mode and not st.session_state["switching"]:
+    st.session_state["switching"] = True
+    # stop current playback so webrtc streamer can be torn down safely
+    if st.session_state["current_mode"] == "Fingerspelling":
+        st.session_state["playing_finger"] = False
+    else:
+        st.session_state["playing_dynamic"] = False
+    st.session_state["current_mode"] = mode
+    st.experimental_rerun()
+
+if st.session_state["current_mode"] is None:
+    st.session_state["current_mode"] = mode
+
+if st.session_state["switching"]:
+    st.session_state["switching"] = False
+
 # STUN config
 rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
+
+# Lower capture resolution to reduce memory/CPU (helps reliability on constrained cloud instances)
+video_constraints = {
+    "video": {
+        "width": {"ideal": 320},
+        "height": {"ideal": 240},
+        "frameRate": {"ideal": 10, "max": 15}
+    },
+    "audio": False
+}
 
 with left_col:
     if mode == "Fingerspelling":
@@ -221,16 +261,12 @@ with left_col:
             key="finger",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=create_finger_processor(),
-            media_stream_constraints={
-                "video": {"frameRate": {"ideal": 10, "max": 15}},
-                "audio": False
-            },
+            media_stream_constraints=video_constraints,
             async_processing=True,
             rtc_configuration=rtc_conf,
             desired_playing_state=st.session_state["playing_finger"],
         )
 
-        # Start / Stop buttons below the video using callbacks and fixed keys
         cols = st.columns([1, 1])
         with cols[0]:
             st.button("Start Fingerspelling", key="start_finger_btn", on_click=start_fingerspelling)
@@ -242,10 +278,7 @@ with left_col:
             key="dynamic",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=create_dynamic_processor(),
-            media_stream_constraints={
-                "video": {"frameRate": {"ideal": 10, "max": 15}},
-                "audio": False
-            },
+            media_stream_constraints=video_constraints,
             async_processing=True,
             rtc_configuration=rtc_conf,
             desired_playing_state=st.session_state["playing_dynamic"],
@@ -257,25 +290,29 @@ with left_col:
         with cols[1]:
             st.button("Stop Dynamic Sign", key="stop_dynamic_btn", on_click=stop_dynamic)
 
-# --- Right column: speech-to-text tool (Whisper + audio recorder) ---
+# -------------------------
+# Right column: speech-to-text tool (Whisper + audio recorder)
+# -------------------------
 with right_col:
     st.markdown("### Speech-to-Text")
 
-    # Prefer the installed package API (if available). If not, fall back to the local component build.
+    # Render audio recorder component with a key stored in session_state so we can remount it
+    record_result = None
     try:
-        # recommended usage from the component package
-        from st_audiorec import st_audiorec  # this should be provided by the pip/git package
-        record_result = st_audiorec()
+        # if pip package available, call it and give it a key so it remounts on key change
+        from st_audiorec import st_audiorec  # type: ignore
+        # when recorder_key changes, the component will be re-mounted and internal playback cleared
+        record_result = st_audiorec(key=f"rec_{st.session_state['recorder_key']}")
     except Exception:
-        # fallback to local component path (only works if st_audiorec/frontend/build exists in your repo)
+        # fallback to local component build (if you included the frontend)
         try:
             st_audiorec_comp = components.declare_component(
                 "st_audiorec", path="st_audiorec/frontend/build"
             )
-            record_result = st_audiorec_comp()
+            record_result = st_audiorec_comp(key=f"rec_{st.session_state['recorder_key']}")
         except Exception as e:
             record_result = None
-            st.warning("Audio recorder component not available. Install streamlit-audio-recorder (in requirements) or include the component frontend build. Error: {}".format(e))
+            st.warning("Audio recorder component not available. Install streamlit-audiorec or include the component frontend build. Error: {}".format(e))
 
     wav_bytes = None
 
@@ -304,24 +341,57 @@ with right_col:
             else:
                 # write bytes to temp file and pass to whisper
                 tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
-                tmp.write(st.session_state["audio_data"])
-                tmp.flush()
-                tmp_path = tmp.name
-                tmp.close()
+                try:
+                    tmp.write(st.session_state["audio_data"])
+                    tmp.flush()
+                    tmp_path = tmp.name
+                finally:
+                    tmp.close()
 
-                model = load_whisper_model()
-                with st.spinner("Transcribing..."):
-                    transcription = model.transcribe(tmp_path)
-                text = transcription.get("text", "").strip()
-                if text:
-                    st.session_state["chat_history"].append({"role": "user", "text": text})
-                    st.success("Transcription added to chat")
-                else:
-                    st.info("No text recognized")
+                # --- Load whisper on demand (smaller models use far less memory) ---
+                # If memory is problem for you, change "base" -> "small" -> "tiny"
+                model_size = "base"
+                try:
+                    model = load_whisper_model_local(size=model_size)
+                    with st.spinner("Transcribing..."):
+                        transcription = model.transcribe(tmp_path)
+                    text = transcription.get("text", "").strip()
+                    if text:
+                        st.session_state["chat_history"].append({"role": "user", "text": text})
+                        st.success("Transcription added to chat")
+                    else:
+                        st.info("No text recognized")
+                except Exception as e:
+                    st.error(f"Transcription failed: {e}")
+                finally:
+                    # cleanup model & temp file and free memory
+                    try:
+                        del model
+                    except Exception:
+                        pass
+                    try:
+                        if os.path.exists(tmp_path):
+                            os.remove(tmp_path)
+                    except Exception:
+                        pass
+                    # free cached GPU memory if present
+                    try:
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                    except Exception:
+                        pass
+                    # try to free python-level memory
+                    gc.collect()
+
     with col_t2:
+        # Clear Recording: clear stored bytes AND remount the recorder component which clears the component's internal UI
         if st.button("Clear Recording"):
             st.session_state["audio_data"] = None
+            # bump key so component gets a fresh instance (removing any playback HTML it showed)
+            st.session_state["recorder_key"] = st.session_state.get("recorder_key", 0) + 1
             st.info("Cleared audio buffer")
+            # force rerun so the component remounts immediately
+            st.experimental_rerun()
 
 # --- Bottom chat area spanning the whole page ---
 st.markdown("---")
@@ -331,7 +401,6 @@ cols_header = st.columns([1, 8])
 with cols_header[0]:
     st.markdown("## Chat & Transcripts (history)")
 with cols_header[1]:
-    # place the Clear History button on the right side of the header
     if st.button("Clear History", key="clear_history_btn"):
         st.session_state["chat_history"] = []
         st.success("Chat history cleared")
@@ -346,8 +415,4 @@ for entry in st.session_state["chat_history"]:
     if entry["role"] == "user":
         st.chat_message("user").write(entry["text"])
     else:
-        # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
-
-
-
