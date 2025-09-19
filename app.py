@@ -50,6 +50,14 @@ def create_finger_processor():
                 min_tracking_confidence=0.3
             )
 
+            # placeholder buffer for future capture logic
+            if "captured_finger" not in st.session_state:
+                st.session_state["captured_finger"] = []
+
+            # flag for whether we're currently recording letters (set by Start/Stop buttons)
+            if "recording_finger" not in st.session_state:
+                st.session_state["recording_finger"] = False
+
         def __del__(self):
             # explicit cleanup to free native resources
             try:
@@ -80,6 +88,15 @@ def create_finger_processor():
                         if len(data) == 42:
                             p = finger_model.predict([np.array(data)])[0]
                             char = labels_dict[int(p)]
+
+                            # If recording is enabled, append recognized char to captured list.
+                            # (Simple: append every frame's prediction — you will later refine.)
+                            try:
+                                if st.session_state.get("recording_finger", False):
+                                    st.session_state["captured_finger"].append(char)
+                            except Exception:
+                                pass
+
                         x1, y1 = int(min(xs)*W)-10, int(min(ys)*H)-10
                         x2, y2 = int(max(xs)*W)+10, int(max(ys)*H)+10
                         cv2.rectangle(img, (x1,y1), (x2,y2), (0,0,0), 4)
@@ -111,6 +128,12 @@ def create_dynamic_processor():
             self.last_text = ""
             self.display_count = 0
 
+            # placeholder for captured sequences and recording flag
+            if "captured_dynamic" not in st.session_state:
+                st.session_state["captured_dynamic"] = []
+            if "recording_dynamic" not in st.session_state:
+                st.session_state["recording_dynamic"] = False
+
         def __del__(self):
             try:
                 if hasattr(self, "holistic") and self.holistic:
@@ -122,9 +145,8 @@ def create_dynamic_processor():
             try:
                 img = frame.to_ndarray(format="bgr24")
                 rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-                # we keep calling asl.extract_landmarks which uses its own MediaPipe processing
-                # here we still call Holistic (self.holistic) to align with earlier logic if needed
-                _ = self.holistic.process(rgb)  # ensure the processor's internal state is used
+                # call processor's holistic so its internal state is used
+                _ = self.holistic.process(rgb)
                 landmarks = asl.extract_landmarks(img)
                 if landmarks is not None:
                     self.buffer.append(landmarks)
@@ -133,7 +155,13 @@ def create_dynamic_processor():
                 if len(self.buffer) >= self.max_frames:
                     sign, conf = asl.predict_sign(self.buffer, asl.model, asl.device)
                     self.last_text = f"{sign} ({conf*100:.1f}%)"
-                    self.display_count = self.max_frames  # show text for next max_frames frames
+                    self.display_count = self.max_frames
+                    # If recording dynamic sequences, store the predicted sign
+                    try:
+                        if st.session_state.get("recording_dynamic", False):
+                            st.session_state["captured_dynamic"].append((sign, conf))
+                    except Exception:
+                        pass
                     self.buffer.clear()
                 # Draw last_text if within display window
                 if self.display_count > 0:
@@ -151,12 +179,12 @@ def create_dynamic_processor():
     return DynamicProcessor
 
 
-# ---- UI + robust switching logic ----
+# ---- UI + robust switching logic with Start/Stop buttons ----
 
 with left_col:
     mode = st.selectbox("Select mode:", ["Fingerspelling", "Dynamic Sign"])
 
-# session state flags for play state and switching
+# session state flags for play state, recording, and switching
 if "playing_finger" not in st.session_state:
     st.session_state["playing_finger"] = False
 if "playing_dynamic" not in st.session_state:
@@ -169,30 +197,62 @@ if "switching" not in st.session_state:
 # If user changed mode: request old streamer stop, mark switching, rerun to let teardown happen
 if st.session_state["current_mode"] is not None and st.session_state["current_mode"] != mode and not st.session_state["switching"]:
     st.session_state["switching"] = True
-    # stop previous
+    # stop previous playing sessions (but do not auto-start the new one)
     if st.session_state["current_mode"] == "Fingerspelling":
         st.session_state["playing_finger"] = False
     else:
         st.session_state["playing_dynamic"] = False
-    # start new
-    if mode == "Fingerspelling":
-        st.session_state["playing_finger"] = True
-    else:
-        st.session_state["playing_dynamic"] = True
+    # set the new current mode; leave playing flags to user Start/Stop
     st.session_state["current_mode"] = mode
     st.experimental_rerun()
 
-# On first visit, set initial states
+# On first visit, set current_mode but do NOT auto-start streams
 if st.session_state["current_mode"] is None:
     st.session_state["current_mode"] = mode
-    if mode == "Fingerspelling":
-        st.session_state["playing_finger"] = True
-    else:
-        st.session_state["playing_dynamic"] = True
 
 # Reset switching flag after rerun
 if st.session_state["switching"]:
     st.session_state["switching"] = False
+
+# Provide Start / Stop buttons in the right column
+with right_col:
+    st.markdown("### Controls")
+    if mode == "Fingerspelling":
+        start = st.button("Start Fingerspelling")
+        stop = st.button("Stop Fingerspelling")
+        # Start: ensure dynamic is stopped and finger playing is True
+        if start:
+            st.session_state["playing_dynamic"] = False
+            st.session_state["playing_finger"] = True
+        if stop:
+            st.session_state["playing_finger"] = False
+        # Recording toggles (separate buttons) - optional quick toggles
+        rec_start = st.button("Start Recording Fingerspelling")
+        rec_stop = st.button("Stop Recording Fingerspelling")
+        if rec_start:
+            st.session_state["recording_finger"] = True
+        if rec_stop:
+            st.session_state["recording_finger"] = False
+
+        # show captured placeholder
+        st.write("Captured (fingerspelling) count:", len(st.session_state.get("captured_finger", [])))
+
+    else:
+        start = st.button("Start Dynamic Sign")
+        stop = st.button("Stop Dynamic Sign")
+        if start:
+            st.session_state["playing_finger"] = False
+            st.session_state["playing_dynamic"] = True
+        if stop:
+            st.session_state["playing_dynamic"] = False
+        rec_start = st.button("Start Recording Dynamic")
+        rec_stop = st.button("Stop Recording Dynamic")
+        if rec_start:
+            st.session_state["recording_dynamic"] = True
+        if rec_stop:
+            st.session_state["recording_dynamic"] = False
+
+        st.write("Captured (dynamic) count:", len(st.session_state.get("captured_dynamic", [])))
 
 # STUN server configuration
 rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
@@ -226,5 +286,14 @@ with left_col:
             desired_playing_state=st.session_state["playing_dynamic"],
         )
 
+# Small debug / info panel on right
 with right_col:
-    st.write("Yay")
+    st.markdown("---")
+    st.write("Mode:", st.session_state["current_mode"])
+    st.write("Playing (finger):", st.session_state["playing_finger"])
+    st.write("Playing (dynamic):", st.session_state["playing_dynamic"])
+    st.write("Recording (finger):", st.session_state.get("recording_finger", False))
+    st.write("Recording (dynamic):", st.session_state.get("recording_dynamic", False))
+    # show a short preview of captured items
+    st.write("Captured fingerspelling (last 20):", st.session_state.get("captured_finger", [])[-20:])
+    st.write("Captured dynamic (last 10):", st.session_state.get("captured_dynamic", [])[-10:])
