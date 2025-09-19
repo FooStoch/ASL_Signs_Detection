@@ -319,9 +319,7 @@ with right_col:
                 else:
                     st.info("No text recognized")
     with col_t2:
-        if st.button("Clear Recording"):
-            st.session_state["audio_data"] = None
-            st.info("Cleared audio buffer")
+        st.write("Hit Reset when transcription is finished to save memory!")
 
 # --- Bottom chat area spanning the whole page ---
 st.markdown("---")
@@ -329,7 +327,7 @@ st.markdown("---")
 # Header with Clear History button to the right
 cols_header = st.columns([1, 8])
 with cols_header[0]:
-    st.markdown("## Chat & Transcripts (history)")
+    st.markdown("## Chat")
 with cols_header[1]:
     # place the Clear History button on the right side of the header
     if st.button("Clear History", key="clear_history_btn"):
@@ -348,3 +346,4 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
