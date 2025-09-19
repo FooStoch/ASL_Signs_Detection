@@ -266,7 +266,7 @@ with right_col:
     # if you installed the streamlit-audio-recorder via pip, you may instead import its helper.
     try:
         # prefer the installed package interface if present
-        from streamlit_audio_recorder import st_audiorec as installed_st_audiorec  # type: ignore
+        import st_audiorec as installed_st_audiorec  # type: ignore
         record_result = installed_st_audiorec()
     except Exception:
         # fallback to declare_component with local path (your original approach)
@@ -341,3 +341,4 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
