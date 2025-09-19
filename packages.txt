@@ -1,1 +1,9 @@
-a
+libgl1-mesa-glx
+libgl1
+libgl1-mesa-dri
+libglu1-mesa
+libglib2.0-0
+libsm6
+libxrender1
+libxext6
+ffmpeg
