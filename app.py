@@ -17,7 +17,7 @@ st.set_page_config(page_title="EchoSign")
 st.title("EchoSign")
 
 # --- Layout: left = video, right = speech-to-text, bottom = chat ---
-left_col, right_col = st.columns([3, 1])
+left_col, right_col = st.columns([1, 1])
 
 # -------------------------
 # Models / cached resources
@@ -339,3 +339,4 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
