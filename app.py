@@ -261,22 +261,11 @@ with left_col:
 with right_col:
     st.markdown("### Speech-to-Text")
 
-    # Prefer the installed package API (if available). If not, fall back to the local component build.
-    try:
-        # recommended usage from the component package
-        from st_audiorec import st_audiorec  # this should be provided by the pip/git package
-        record_result = st_audiorec()
-    except Exception:
-        # fallback to local component path (only works if st_audiorec/frontend/build exists in your repo)
-        try:
-            st_audiorec_comp = components.declare_component(
-                "st_audiorec", path="st_audiorec/frontend/build"
-            )
-            record_result = st_audiorec_comp()
-        except Exception as e:
-            record_result = None
-            st.warning("Audio recorder component not available. Install streamlit-audio-recorder (in requirements) or include the component frontend build. Error: {}".format(e))
-
+    st_audiorec_comp = components.declare_component(
+        "st_audiorec", path="st_audiorec/frontend/build"
+    )
+    record_result = st_audiorec_comp()
+    
     wav_bytes = None
 
     if isinstance(record_result, dict) and "arr" in record_result:
@@ -339,3 +328,4 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
