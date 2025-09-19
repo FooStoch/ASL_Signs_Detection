@@ -325,7 +325,16 @@ with right_col:
 
 # --- Bottom chat area spanning the whole page ---
 st.markdown("---")
-st.markdown("## Chat & Transcripts (history)")
+
+# Header with Clear History button to the right
+cols_header = st.columns([1, 8])
+with cols_header[0]:
+    st.markdown("## Chat & Transcripts (history)")
+with cols_header[1]:
+    # place the Clear History button on the right side of the header
+    if st.button("Clear History", key="clear_history_btn"):
+        st.session_state["chat_history"] = []
+        st.success("Chat history cleared")
 
 # Input box (user can type messages)
 user_input = st.chat_input("Send a message (or speak then transcribe):")
@@ -339,5 +348,6 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
 
 
