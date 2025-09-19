@@ -13,8 +13,8 @@ from io import BytesIO
 import streamlit.components.v1 as components
 
 # --- Page config ---
-st.set_page_config(page_title="EchoSign")
-st.title("EchoSign")
+st.set_page_config(page_title="Computerpreter", layout="wide")
+st.title("Computerpreter")
 
 # --- Layout: left = video, right = speech-to-text, bottom = chat ---
 left_col, right_col = st.columns([1, 1])
@@ -339,4 +339,5 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "user" role here for transcriptions; keep generic rendering
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
 
