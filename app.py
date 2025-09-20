@@ -49,7 +49,7 @@ def load_whisper_model():
 labels_dict = {i: chr(ord('A') + i) for i in range(26)}
 
 # -------------------------
-# Video processors (unchanged logic with cleanup)
+# Video processors (with best-effort session_state append)
 # -------------------------
 def create_finger_processor():
     class FingerProcessor(VideoProcessorBase):
@@ -93,6 +93,13 @@ def create_finger_processor():
                         if len(data) == 42:
                             p = finger_model.predict([np.array(data)])[0]
                             char = labels_dict[int(p)]
+                            # best-effort append to fingerspelling raw history
+                            try:
+                                if "fingerspelling_raw" in st.session_state:
+                                    st.session_state["fingerspelling_raw"].append(char)
+                            except Exception:
+                                # processor thread may not have safe access; ignore
+                                pass
                         x1, y1 = int(min(xs)*W)-10, int(min(ys)*H)-10
                         x2, y2 = int(max(xs)*W)+10, int(max(ys)*H)+10
                         cv2.rectangle(img, (x1,y1), (x2,y2), (0,0,0), 4)
@@ -117,6 +124,8 @@ def create_dynamic_processor():
             self.max_frames = 30
             self.last_text = ""
             self.display_count = 0
+            # collect predictions in this instance for best-effort retrieval
+            self.predicted_signs = []
 
         def __del__(self):
             try:
@@ -138,6 +147,17 @@ def create_dynamic_processor():
                     sign, conf = asl.predict_sign(self.buffer, asl.model, asl.device)
                     self.last_text = f"{sign} ({conf*100:.1f}%)"
                     self.display_count = self.max_frames
+                    # store predicted sign in instance list
+                    try:
+                        self.predicted_signs.append(sign)
+                    except Exception:
+                        pass
+                    # try to append to session_state dynamic_sequence (best-effort)
+                    try:
+                        if "dynamic_sequence" in st.session_state:
+                            st.session_state["dynamic_sequence"].append(sign)
+                    except Exception:
+                        pass
                     self.buffer.clear()
                 if self.display_count > 0:
                     cv2.putText(
@@ -171,6 +191,12 @@ if "chat_history" not in st.session_state:
 if "audio_data" not in st.session_state:
     st.session_state["audio_data"] = None
 
+# Ensure dynamic_sequence and fingerspelling_raw exist
+if "dynamic_sequence" not in st.session_state:
+    st.session_state["dynamic_sequence"] = []
+if "fingerspelling_raw" not in st.session_state:
+    st.session_state["fingerspelling_raw"] = []
+
 # -------------------------
 # UI: left video + start/stop; right STT; bottom chat
 # -------------------------
@@ -197,27 +223,95 @@ if st.session_state["switching"]:
 
 # Callbacks used for buttons (immediate effect)
 def start_fingerspelling():
+    # reset raw letter history
+    st.session_state["fingerspelling_raw"] = []
     st.session_state["playing_dynamic"] = False
     st.session_state["playing_finger"] = True
     st.session_state["current_mode"] = "Fingerspelling"
 
 def stop_fingerspelling():
     st.session_state["playing_finger"] = False
+    # best-effort: combine processor-side data if available
+    collected = []
+    try:
+        ctx = st.session_state.get("webrtc_ctx_finger")
+        if ctx is not None and getattr(ctx, "video_processor", None) is not None:
+            vp = ctx.video_processor
+            collected += getattr(vp, "predicted_letters", []) or []
+    except Exception:
+        pass
+    # include session_state raw list
+    try:
+        collected = (st.session_state.get("fingerspelling_raw", []) or []) + collected
+    except Exception:
+        collected = collected
+
+    history = [c for c in collected if c]  # filter falsy
+    # Apply sliding-window trimming logic as provided
+    window_size = 10
+    threshold = 6
+    result = []
+    prev_main = None
+
+    # Only run if we have enough history; the algorithm will simply skip otherwise
+    for i in range(len(history) - window_size + 1):
+        window = history[i:i+window_size]
+        counts = {}
+        for letter in window:
+            counts[letter] = counts.get(letter, 0) + 1
+        main_letter = max(counts, key=counts.get)
+        if counts[main_letter] >= threshold:
+            if main_letter != prev_main:
+                result.append(main_letter)
+                prev_main = main_letter
+
+    result_string = ''.join(result)
+    # append chat message showing raw list and trimmed word
+    st.session_state["chat_history"].append({
+        "role": "assistant",
+        "text": f"Fingerspelling detected (raw): {history}\nTrimmed result: {result_string}"
+    })
+    # clear raw history after processing
+    st.session_state["fingerspelling_raw"] = []
 
 def start_dynamic():
+    # reset dynamic sequence storage
+    st.session_state["dynamic_sequence"] = []
     st.session_state["playing_finger"] = False
     st.session_state["playing_dynamic"] = True
     st.session_state["current_mode"] = "Dynamic Sign"
 
 def stop_dynamic():
     st.session_state["playing_dynamic"] = False
+    # collect signs from webrtc processor context (best-effort)
+    collected = []
+    try:
+        ctx = st.session_state.get("webrtc_ctx_dynamic")
+        if ctx is not None and getattr(ctx, "video_processor", None) is not None:
+            vp = ctx.video_processor
+            collected += getattr(vp, "predicted_signs", []) or []
+    except Exception:
+        pass
+    # Also include anything in st.session_state dynamic_sequence (safer)
+    try:
+        collected = (st.session_state.get("dynamic_sequence", []) or []) + collected
+    except Exception:
+        collected = collected
+    # No dedup; just show full list
+    final_seq = [s for s in collected if s]
+    st.session_state["chat_history"].append({
+        "role": "assistant",
+        "text": f"Dynamic signs detected: {final_seq}"
+    })
+    # clear the dynamic_sequence to be ready for next start
+    st.session_state["dynamic_sequence"] = []
 
 # STUN config
 rtc_conf = {"iceServers": [{"urls": ["stun:stun.l.google.com:19302"]}]}
 
 with left_col:
     if mode == "Fingerspelling":
-        webrtc_streamer(
+        ctx_f = webrtc_streamer(
             key="finger",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=create_finger_processor(),
@@ -229,6 +323,8 @@ with left_col:
             rtc_configuration=rtc_conf,
             desired_playing_state=st.session_state["playing_finger"],
         )
+        # store context for potential processor-side inspection
+        st.session_state["webrtc_ctx_finger"] = ctx_f
 
         # Start / Stop buttons below the video using callbacks and fixed keys
         cols = st.columns([1, 1])
@@ -238,7 +334,7 @@ with left_col:
             st.button("Stop Fingerspelling", key="stop_finger_btn", on_click=stop_fingerspelling)
 
     else:
-        webrtc_streamer(
+        ctx_d = webrtc_streamer(
             key="dynamic",
             mode=WebRtcMode.SENDRECV,
             video_processor_factory=create_dynamic_processor(),
@@ -250,6 +346,8 @@ with left_col:
             rtc_configuration=rtc_conf,
             desired_playing_state=st.session_state["playing_dynamic"],
         )
+        # store context for potential processor-side inspection
+        st.session_state["webrtc_ctx_dynamic"] = ctx_d
 
         cols = st.columns([1, 1])
         with cols[0]:
@@ -344,6 +442,5 @@ for entry in st.session_state["chat_history"]:
     if entry["role"] == "user":
         st.chat_message("user").write(entry["text"])
     else:
-        # we only use "user" role here for transcriptions; keep generic rendering
+        # we only use "assistant" role here for translations & replies
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
-
