@@ -63,6 +63,8 @@ def create_finger_processor():
                 min_detection_confidence=0.3,
                 min_tracking_confidence=0.3
             )
+            # store predicted letters in the processor instance (best-effort)
+            self.predicted_letters = []
 
         def __del__(self):
             try:
@@ -93,12 +95,17 @@ def create_finger_processor():
                         if len(data) == 42:
                             p = finger_model.predict([np.array(data)])[0]
                             char = labels_dict[int(p)]
-                            # best-effort append to fingerspelling raw history
+                            # best-effort append to fingerspelling raw history (session_state)
                             try:
                                 if "fingerspelling_raw" in st.session_state:
                                     st.session_state["fingerspelling_raw"].append(char)
                             except Exception:
                                 # processor thread may not have safe access; ignore
+                                pass
+                            # append to processor-side list as well
+                            try:
+                                self.predicted_letters.append(char)
+                            except Exception:
                                 pass
                         x1, y1 = int(min(xs)*W)-10, int(min(ys)*H)-10
                         x2, y2 = int(max(xs)*W)+10, int(max(ys)*H)+10
@@ -237,6 +244,7 @@ def stop_fingerspelling():
         ctx = st.session_state.get("webrtc_ctx_finger")
         if ctx is not None and getattr(ctx, "video_processor", None) is not None:
             vp = ctx.video_processor
+            # processor-side name is predicted_letters
             collected += getattr(vp, "predicted_letters", []) or []
     except Exception:
         pass
@@ -247,13 +255,13 @@ def stop_fingerspelling():
         collected = collected
 
     history = [c for c in collected if c]  # filter falsy
+
     # Apply sliding-window trimming logic as provided
     window_size = 10
     threshold = 6
     result = []
     prev_main = None
 
-    # Only run if we have enough history; the algorithm will simply skip otherwise
     for i in range(len(history) - window_size + 1):
         window = history[i:i+window_size]
         counts = {}
@@ -265,11 +273,22 @@ def stop_fingerspelling():
                 result.append(main_letter)
                 prev_main = main_letter
 
+    # Fallback: if sliding-window produced nothing, do run-length compression to remove consecutive duplicates
+    if not result and history:
+        compressed = []
+        prev = None
+        for letter in history:
+            if letter != prev:
+                compressed.append(letter)
+                prev = letter
+        result = compressed
+
     result_string = ''.join(result)
-    # append chat message showing raw list and trimmed word
+
+    # append chat message showing only the final trimmed word
     st.session_state["chat_history"].append({
         "role": "assistant",
-        "text": f"Fingerspelling detected (raw): {history}\nTrimmed result: {result_string}"
+        "text": f"{result_string}"
     })
     # clear raw history after processing
     st.session_state["fingerspelling_raw"] = []
@@ -297,12 +316,19 @@ def stop_dynamic():
         collected = (st.session_state.get("dynamic_sequence", []) or []) + collected
     except Exception:
         collected = collected
-    # No dedup; just show full list
+    # No dedup; just show full list as a natural sentence
     final_seq = [s for s in collected if s]
-    st.session_state["chat_history"].append({
-        "role": "assistant",
-        "text": f"Dynamic signs detected: {final_seq}"
-    })
+    sentence = " ".join(final_seq).strip()
+    if sentence:
+        st.session_state["chat_history"].append({
+            "role": "assistant",
+            "text": sentence
+        })
+    else:
+        st.session_state["chat_history"].append({
+            "role": "assistant",
+            "text": ""
+        })
     # clear the dynamic_sequence to be ready for next start
     st.session_state["dynamic_sequence"] = []
 
