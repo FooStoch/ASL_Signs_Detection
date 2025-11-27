@@ -303,7 +303,30 @@ def start_dynamic():
     st.session_state["current_mode"] = "Dynamic Sign"
 
 def stop_dynamic():
+    # Mark playing off (so UI's desired_playing_state is updated)
     st.session_state["playing_dynamic"] = False
+
+    # Attempt to stop the webrtc streamer/context for dynamic (best-effort).
+    # This should close the camera before we enter the spinner/translation step.
+    try:
+        ctx_dyn = st.session_state.get("webrtc_ctx_dynamic")
+        if ctx_dyn is not None:
+            # many webrtc contexts expose a stop() method; call if present
+            stop_fn = getattr(ctx_dyn, "stop", None)
+            if callable(stop_fn):
+                try:
+                    stop_fn()
+                except Exception:
+                    # ignore any errors while attempting to stop
+                    pass
+            # as a fallback, try to set the desired playing state to False on the context (best-effort)
+            try:
+                setattr(ctx_dyn, "desired_playing_state", False)
+            except Exception:
+                pass
+    except Exception:
+        pass
+
     # collect signs from webrtc processor context (best-effort)
     collected = []
     try:
@@ -345,6 +368,8 @@ def stop_dynamic():
         else:
             # Use your chatbot-api endpoint and key (minimal integration)
             try:
+                # At this point we've attempted to stop the camera/streamer above.
+                # Now run the translation inside the spinner.
                 with st.spinner("Translating ASL to English..."):
                     response = requests.post(
                         url="https://openrouter.ai/api/v1/chat/completions",
@@ -445,6 +470,8 @@ with left_col:
 # --- Right column: speech-to-text tool (Whisper + audio recorder) ---
 with right_col:
     st.markdown("### Speech-to-Text")
+    # Bold hint placed under the title as requested
+    st.markdown("**Hit Reset when transcription is finished to save memory!**")
 
     # Prefer the installed package API (if available). If not, fall back to the local component build.
     try:
@@ -503,8 +530,7 @@ with right_col:
                     st.success("Transcription added to chat")
                 else:
                     st.info("No text recognized")
-    with col_t2:
-        st.write("Hit Reset when transcription is finished to save memory!")
+    # (previous "Hit Reset..." line removed from here; now placed under the Speech-to-Text heading)
 
 # --- Bottom chat area spanning the whole page ---
 st.markdown("---")
