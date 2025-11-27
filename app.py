@@ -11,6 +11,8 @@ import os
 import tempfile
 from io import BytesIO
 import streamlit.components.v1 as components
+import requests
+import json
 
 # --- Page config ---
 st.set_page_config(page_title="Computerpreter", layout="wide")
@@ -319,12 +321,55 @@ def stop_dynamic():
     # No dedup; just show full list as a natural sentence
     final_seq = [s for s in collected if s]
     sentence = " ".join(final_seq).strip()
-    if sentence:
-        st.session_state["chat_history"].append({
-            "role": "assistant",
-            "text": sentence
-        })
+
+    # If there's a sequence, call chatbot API to translate ASL gloss -> English sentence
+    if final_seq:
+        # Build the exact content prompt requested
+        content_prompt = f"Here's American Sign Language gloss: {final_seq}. Please turn it into an English sentence with periods, question marks, capital letters, etc. Please output nothing else."
+
+        # Use your chatbot-api endpoint and key (minimal integration)
+        try:
+            with st.spinner("Translating ASL to English..."):
+                response = requests.post(
+                    url="https://openrouter.ai/api/v1/chat/completions",
+                    headers={
+                        "Authorization": "Bearer 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",
+                        "Content-Type": "application/json",
+                    },
+                    data=json.dumps({
+                        "model": "x-ai/grok-4.1-fast:free",
+                        "messages": [
+                            {
+                                "role": "user",
+                                "content": content_prompt
+                            }
+                        ]
+                    }),
+                    timeout=30
+                )
+                if response.status_code == 200:
+                    result = response.json()
+                    # Extract assistant reply (following your provided snippet structure)
+                    assistant_response = result['choices'][0]['message']['content']
+                    # Append the assistant's translated sentence to chat history
+                    st.session_state["chat_history"].append({
+                        "role": "assistant",
+                        "text": assistant_response
+                    })
+                else:
+                    # On error, fallback to showing the raw sequence as before
+                    st.session_state["chat_history"].append({
+                        "role": "assistant",
+                        "text": sentence
+                    })
+        except Exception:
+            # Any exception during API call -> fallback to raw sequence
+            st.session_state["chat_history"].append({
+                "role": "assistant",
+                "text": sentence
+            })
     else:
+        # No detected signs -> append empty assistant message (same behavior as before)
         st.session_state["chat_history"].append({
             "role": "assistant",
             "text": ""
