@@ -287,87 +287,11 @@ def stop_fingerspelling():
 
     result_string = ''.join(result)
 
-    # Build raw string of all collected letters (with repeats) for the chatbot prompt
-    raw_string = ''.join(history)
-
-    # If there's a raw string, call chatbot API to translate fingerspelling -> intended word
-    if raw_string:
-        content_prompt = f"Here's American Sign Language fingerspelling for: {raw_string}. Please turn it into the intended English word. Each letter is a prediction from a frame, so there may be large repeats and also a few wrong letters. Your output should be all uppercase. Please output nothing else."
-
-        # Retrieve API key from st.secrets (recommended) or environment as a fallback
-        api_key = None
-        try:
-            api_key = st.secrets["openrouter"]["api_key"]
-        except Exception:
-            # try alternate keys
-            api_key = st.secrets.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
-
-        if not api_key:
-            # If no API key found, fallback to existing trimmed result_string
-            st.warning("OpenRouter API key not found in st.secrets or environment variable 'OPENROUTER_API_KEY'. Falling back to local fingerspelling result.")
-            st.session_state["chat_history"].append({
-                "role": "assistant",
-                "text": f"{result_string}"
-            })
-        else:
-            try:
-                # Shorter timeout to avoid long hangs
-                with st.spinner("Translating fingerspelling to word..."):
-                    response = requests.post(
-                        url="https://openrouter.ai/api/v1/chat/completions",
-                        headers={
-                            "Authorization": f"Bearer {api_key}",
-                            "Content-Type": "application/json",
-                        },
-                        data=json.dumps({
-                            "model": "x-ai/grok-4.1-fast:free",
-                            "messages": [
-                                {
-                                    "role": "user",
-                                    "content": content_prompt
-                                }
-                            ]
-                        }),
-                        timeout=10
-                    )
-                    # Ensure we always read/close response to free resources
-                    if response.status_code == 200:
-                        try:
-                            result = response.json()
-                            assistant_response = result['choices'][0]['message']['content']
-                            st.session_state["chat_history"].append({
-                                "role": "assistant",
-                                "text": assistant_response
-                            })
-                        except Exception:
-                            # JSON parse error or unexpected structure -> fallback
-                            st.session_state["chat_history"].append({
-                                "role": "assistant",
-                                "text": f"{result_string}"
-                            })
-                    else:
-                        # On non-200 error, fallback to trimmed result_string
-                        st.session_state["chat_history"].append({
-                            "role": "assistant",
-                            "text": f"{result_string}"
-                        })
-                    try:
-                        response.close()
-                    except Exception:
-                        pass
-            except Exception:
-                # Any exception during API call -> fallback to trimmed result_string
-                st.session_state["chat_history"].append({
-                    "role": "assistant",
-                    "text": f"{result_string}"
-                })
-    else:
-        # No letters detected -> append the trimmed (likely empty) result
-        st.session_state["chat_history"].append({
-            "role": "assistant",
-            "text": f"{result_string}"
-        })
-
+    # append chat message showing only the final trimmed word
+    st.session_state["chat_history"].append({
+        "role": "assistant",
+        "text": f"{result_string}"
+    })
     # clear raw history after processing
     st.session_state["fingerspelling_raw"] = []
 
@@ -381,6 +305,27 @@ def start_dynamic():
 def stop_dynamic():
     # Mark playing off (so UI's desired_playing_state is updated)
     st.session_state["playing_dynamic"] = False
+
+    # Attempt to stop the webrtc streamer/context for dynamic (best-effort).
+    # This should close the camera before we enter the spinner/translation step.
+    try:
+        ctx_dyn = st.session_state.get("webrtc_ctx_dynamic")
+        if ctx_dyn is not None:
+            # many webrtc contexts expose a stop() method; call if present
+            stop_fn = getattr(ctx_dyn, "stop", None)
+            if callable(stop_fn):
+                try:
+                    stop_fn()
+                except Exception:
+                    # ignore any errors while attempting to stop
+                    pass
+            # as a fallback, try to set the desired playing state to False on the context (best-effort)
+            try:
+                setattr(ctx_dyn, "desired_playing_state", False)
+            except Exception:
+                pass
+    except Exception:
+        pass
 
     # collect signs from webrtc processor context (best-effort)
     collected = []
@@ -423,7 +368,8 @@ def stop_dynamic():
         else:
             # Use your chatbot-api endpoint and key (minimal integration)
             try:
-                # Shorter timeout to avoid long hangs
+                # At this point we've attempted to stop the camera/streamer above.
+                # Now run the translation inside the spinner.
                 with st.spinner("Translating ASL to English..."):
                     response = requests.post(
                         url="https://openrouter.ai/api/v1/chat/completions",
@@ -440,31 +386,25 @@ def stop_dynamic():
                                 }
                             ]
                         }),
-                        timeout=10
+                        timeout=30
                     )
                     if response.status_code == 200:
-                        try:
-                            result = response.json()
-                            assistant_response = result['choices'][0]['message']['content']
-                            st.session_state["chat_history"].append({
-                                "role": "assistant",
-                                "text": assistant_response
-                            })
-                        except Exception:
-                            st.session_state["chat_history"].append({
-                                "role": "assistant",
-                                "text": sentence
-                            })
+                        result = response.json()
+                        # Extract assistant reply (following your provided snippet structure)
+                        assistant_response = result['choices'][0]['message']['content']
+                        # Append the assistant's translated sentence to chat history
+                        st.session_state["chat_history"].append({
+                            "role": "assistant",
+                            "text": assistant_response
+                        })
                     else:
+                        # On error, fallback to showing the raw sequence as before
                         st.session_state["chat_history"].append({
                             "role": "assistant",
                             "text": sentence
                         })
-                    try:
-                        response.close()
-                    except Exception:
-                        pass
             except Exception:
+                # Any exception during API call -> fallback to raw sequence
                 st.session_state["chat_history"].append({
                     "role": "assistant",
                     "text": sentence
