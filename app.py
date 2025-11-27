@@ -311,6 +311,7 @@ def stop_fingerspelling():
             })
         else:
             try:
+                # Shorter timeout to avoid long hangs
                 with st.spinner("Translating fingerspelling to word..."):
                     response = requests.post(
                         url="https://openrouter.ai/api/v1/chat/completions",
@@ -327,22 +328,33 @@ def stop_fingerspelling():
                                 }
                             ]
                         }),
-                        timeout=30
+                        timeout=10
                     )
+                    # Ensure we always read/close response to free resources
                     if response.status_code == 200:
-                        result = response.json()
-                        assistant_response = result['choices'][0]['message']['content']
-                        # Append the assistant's response (expected uppercase word)
-                        st.session_state["chat_history"].append({
-                            "role": "assistant",
-                            "text": assistant_response
-                        })
+                        try:
+                            result = response.json()
+                            assistant_response = result['choices'][0]['message']['content']
+                            st.session_state["chat_history"].append({
+                                "role": "assistant",
+                                "text": assistant_response
+                            })
+                        except Exception:
+                            # JSON parse error or unexpected structure -> fallback
+                            st.session_state["chat_history"].append({
+                                "role": "assistant",
+                                "text": f"{result_string}"
+                            })
                     else:
-                        # On error, fallback to showing the trimmed result_string
+                        # On non-200 error, fallback to trimmed result_string
                         st.session_state["chat_history"].append({
                             "role": "assistant",
                             "text": f"{result_string}"
                         })
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
             except Exception:
                 # Any exception during API call -> fallback to trimmed result_string
                 st.session_state["chat_history"].append({
@@ -411,7 +423,7 @@ def stop_dynamic():
         else:
             # Use your chatbot-api endpoint and key (minimal integration)
             try:
-                # Run the translation inside the spinner.
+                # Shorter timeout to avoid long hangs
                 with st.spinner("Translating ASL to English..."):
                     response = requests.post(
                         url="https://openrouter.ai/api/v1/chat/completions",
@@ -428,25 +440,31 @@ def stop_dynamic():
                                 }
                             ]
                         }),
-                        timeout=30
+                        timeout=10
                     )
                     if response.status_code == 200:
-                        result = response.json()
-                        # Extract assistant reply (following your provided snippet structure)
-                        assistant_response = result['choices'][0]['message']['content']
-                        # Append the assistant's translated sentence to chat history
-                        st.session_state["chat_history"].append({
-                            "role": "assistant",
-                            "text": assistant_response
-                        })
+                        try:
+                            result = response.json()
+                            assistant_response = result['choices'][0]['message']['content']
+                            st.session_state["chat_history"].append({
+                                "role": "assistant",
+                                "text": assistant_response
+                            })
+                        except Exception:
+                            st.session_state["chat_history"].append({
+                                "role": "assistant",
+                                "text": sentence
+                            })
                     else:
-                        # On error, fallback to showing the raw sequence as before
                         st.session_state["chat_history"].append({
                             "role": "assistant",
                             "text": sentence
                         })
+                    try:
+                        response.close()
+                    except Exception:
+                        pass
             except Exception:
-                # Any exception during API call -> fallback to raw sequence
                 st.session_state["chat_history"].append({
                     "role": "assistant",
                     "text": sentence
