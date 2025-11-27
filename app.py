@@ -327,47 +327,63 @@ def stop_dynamic():
         # Build the exact content prompt requested
         content_prompt = f"Here's American Sign Language gloss: {final_seq}. Please turn it into an English sentence with periods, question marks, capital letters, etc. Please output nothing else."
 
-        # Use your chatbot-api endpoint and key (minimal integration)
+        # Retrieve API key from st.secrets (recommended) or environment as a fallback
+        api_key = None
         try:
-            with st.spinner("Translating ASL to English..."):
-                response = requests.post(
-                    url="https://openrouter.ai/api/v1/chat/completions",
-                    headers={
-                        "Authorization": "Bearer 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",
-                        "Content-Type": "application/json",
-                    },
-                    data=json.dumps({
-                        "model": "x-ai/grok-4.1-fast:free",
-                        "messages": [
-                            {
-                                "role": "user",
-                                "content": content_prompt
-                            }
-                        ]
-                    }),
-                    timeout=30
-                )
-                if response.status_code == 200:
-                    result = response.json()
-                    # Extract assistant reply (following your provided snippet structure)
-                    assistant_response = result['choices'][0]['message']['content']
-                    # Append the assistant's translated sentence to chat history
-                    st.session_state["chat_history"].append({
-                        "role": "assistant",
-                        "text": assistant_response
-                    })
-                else:
-                    # On error, fallback to showing the raw sequence as before
-                    st.session_state["chat_history"].append({
-                        "role": "assistant",
-                        "text": sentence
-                    })
+            api_key = st.secrets["openrouter"]["api_key"]
         except Exception:
-            # Any exception during API call -> fallback to raw sequence
+            # try alternate keys
+            api_key = st.secrets.get("OPENROUTER_API_KEY") or os.environ.get("OPENROUTER_API_KEY")
+
+        if not api_key:
+            # If no API key found, inform and fallback to raw gloss
+            st.warning("OpenRouter API key not found in st.secrets or environment variable 'OPENROUTER_API_KEY'. Falling back to showing raw ASL gloss.")
             st.session_state["chat_history"].append({
                 "role": "assistant",
                 "text": sentence
             })
+        else:
+            # Use your chatbot-api endpoint and key (minimal integration)
+            try:
+                with st.spinner("Translating ASL to English..."):
+                    response = requests.post(
+                        url="https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        data=json.dumps({
+                            "model": "x-ai/grok-4.1-fast:free",
+                            "messages": [
+                                {
+                                    "role": "user",
+                                    "content": content_prompt
+                                }
+                            ]
+                        }),
+                        timeout=30
+                    )
+                    if response.status_code == 200:
+                        result = response.json()
+                        # Extract assistant reply (following your provided snippet structure)
+                        assistant_response = result['choices'][0]['message']['content']
+                        # Append the assistant's translated sentence to chat history
+                        st.session_state["chat_history"].append({
+                            "role": "assistant",
+                            "text": assistant_response
+                        })
+                    else:
+                        # On error, fallback to showing the raw sequence as before
+                        st.session_state["chat_history"].append({
+                            "role": "assistant",
+                            "text": sentence
+                        })
+            except Exception:
+                # Any exception during API call -> fallback to raw sequence
+                st.session_state["chat_history"].append({
+                    "role": "assistant",
+                    "text": sentence
+                })
     else:
         # No detected signs -> append empty assistant message (same behavior as before)
         st.session_state["chat_history"].append({
