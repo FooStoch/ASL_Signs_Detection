@@ -471,7 +471,7 @@ with left_col:
 with right_col:
     st.markdown("### Speech-to-Text")
     # Bold hint placed under the title as requested
-    st.markdown("**Hit Reset when transcription is finished to save memory!**")
+    st.markdown("**Hit $Reset$ when transcription is finished to save memory!**")
 
     # Prefer the installed package API (if available). If not, fall back to the local component build.
     try:
@@ -557,4 +557,5 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "assistant" role here for translations & replies
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
 
