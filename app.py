@@ -378,7 +378,7 @@ def stop_dynamic():
                             "Content-Type": "application/json",
                         },
                         data=json.dumps({
-                            "model": "x-ai/grok-4.1-fast:free",
+                            "model": "deepseek/deepseek-r1-0528:free",
                             "messages": [
                                 {
                                     "role": "user",
@@ -557,3 +557,4 @@ for entry in st.session_state["chat_history"]:
     else:
         # we only use "assistant" role here for translations & replies
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
+
