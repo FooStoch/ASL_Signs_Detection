@@ -378,7 +378,7 @@ def stop_dynamic():
                             "Content-Type": "application/json",
                         },
                         data=json.dumps({
-                            "model": "deepseek/deepseek-r1-0528:free",
+                            "model": "stepfun/step-3.5-flash:free",
                             "messages": [
                                 {
                                     "role": "user",
@@ -560,3 +560,4 @@ for entry in st.session_state["chat_history"]:
 
 # Small persistent disclaimer under the chatbox
 st.caption("AI predictions may be inaccurate. Please refer to professional interpreters for important situations such as medical or legal emergencies.")
+
