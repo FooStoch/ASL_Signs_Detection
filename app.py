@@ -558,7 +558,5 @@ for entry in st.session_state["chat_history"]:
         # we only use "assistant" role here for translations & replies
         st.chat_message(entry.get("role", "assistant")).write(entry["text"])
 
-
-
-
-
+# Small persistent disclaimer under the chatbox
+st.caption("AI predictions may be inaccurate. Please refer to professional interpreters for important situations such as medical or legal emergencies.")
