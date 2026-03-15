@@ -40,6 +40,7 @@ if page == "About us":
     st.header("Accolades and Awards")
     st.markdown("Computerpreter was named the Congressional App Challenge (CAC) Top Apps West Region Winner: https://www.congressionalappchallenge.us/2025-winners/!")
     st.markdown("Computerpreter won 5th place in the World AI Competition for Youth (WAICY): https://waicy-cdn.wholeren.cn/wp-content/uploads/2025/12/WAICY-2025-Winner-Announcement-Global-4.pdf!")
+    st.markdown("Computerpreter won 1st place in the Youth Entrepreneurship Challenge (YEC) by the Chinese Association of Science and Technology (CAST): file:///C:/Users/victo/Downloads/CAST-YEC.pdf!")
     st.markdown("Computerpreter won 3rd place in the High School Utah Entrepreneurship Challenge (HSUEC) and $3,100: https://lassonde.utah.edu/hsuec!")
     st.caption("Navigation: use the top-left menu to return to the main app.")
     st.stop()
