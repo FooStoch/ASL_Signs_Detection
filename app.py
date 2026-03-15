@@ -17,21 +17,24 @@ import json
 # --- Page config ---
 st.set_page_config(page_title="Computerpreter", layout="wide")
 
-# --- SIMPLE NAVIGATION (added) ---
-# small navigation bar placed in the sidebar so it stays compact
-page = st.sidebar.radio("Navigate", ["Computerpreter", "Accolades"], index=0)
+# --- COMPACT TOP NAVIGATION (added) ---
+# small, narrow selectbox placed in a narrow left column to keep it compact
+nav_col, _ = st.columns([0.18, 0.82])
+with nav_col:
+    # label_visibility="collapsed" hides the label and keeps the control compact
+    page = st.selectbox("Navigate", ["Computerpreter", "About us"], index=0, key="page_nav", label_visibility="collapsed")
 
-# If user selects the Accolades page, show a placeholder (you will provide the final content).
-# st.stop() prevents the rest of the main app from running while on the Accolades page.
-if page == "Accolades":
-    st.title("Computerpreter — Accolades")
-    st.markdown(
-        "This page will display the accolades and awards the app has won in competitions.\n\n"
-        "Tell me what to write here and I'll add the formatted accolades content (dates, award names, "
-        "descriptions, images, links, etc.)."
+# If the user selects the About us page, show the requested content and stop executing the main app.
+if page == "About us":
+    st.header("About Computerpreter")
+    st.write(
+        "Computerpreter is an app that bridges the Deaf world and hearing world. "
+        "Victor Young and Forest Young, high school students from Skyline High School in SLC, Utah, "
+        "have created this app through their knowledge and passion for AI and its uses for benefitting communities worldwide."
     )
-    # small, unobtrusive footer/note for now
-    st.caption("Navigation: use the sidebar to return to the main app.")
+    st.markdown("Here's a video that explains how Computerpreter works as well as why Computerpreter stands out: https://youtu.be/jIPOeskewME.")
+    st.markdown("Here's the slideshow used in the video: https://docs.google.com/presentation/d/1tQ2sYysGiEH8UfrWaAOD-ggDFwBp7mRGoyiaZViza7E/edit?usp=sharing.")
+    st.caption("Navigation: use the top-left menu to return to the main app.")
     st.stop()
 # --- end navigation ---
 
