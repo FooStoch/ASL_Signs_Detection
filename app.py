@@ -16,6 +16,25 @@ import json
 
 # --- Page config ---
 st.set_page_config(page_title="Computerpreter", layout="wide")
+
+# --- SIMPLE NAVIGATION (added) ---
+# small navigation bar placed in the sidebar so it stays compact
+page = st.sidebar.radio("Navigate", ["Computerpreter", "Accolades"], index=0)
+
+# If user selects the Accolades page, show a placeholder (you will provide the final content).
+# st.stop() prevents the rest of the main app from running while on the Accolades page.
+if page == "Accolades":
+    st.title("Computerpreter — Accolades")
+    st.markdown(
+        "This page will display the accolades and awards the app has won in competitions.\n\n"
+        "Tell me what to write here and I'll add the formatted accolades content (dates, award names, "
+        "descriptions, images, links, etc.)."
+    )
+    # small, unobtrusive footer/note for now
+    st.caption("Navigation: use the sidebar to return to the main app.")
+    st.stop()
+# --- end navigation ---
+
 st.title("Computerpreter")
 
 # --- Layout: left = video, right = speech-to-text, bottom = chat ---
@@ -560,4 +579,3 @@ for entry in st.session_state["chat_history"]:
 
 # Small persistent disclaimer under the chatbox
 st.caption("AI predictions may be inaccurate. Please refer to professional interpreters for important situations such as medical or legal emergencies.")
-
