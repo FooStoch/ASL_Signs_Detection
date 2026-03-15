@@ -32,8 +32,15 @@ if page == "About us":
         "Victor Young and Forest Young, high school students from Skyline High School in SLC, Utah, "
         "have created this app through their knowledge and passion for AI and its uses for benefitting communities worldwide."
     )
-    st.markdown("Here's a video that explains how Computerpreter works as well as why Computerpreter stands out: https://youtu.be/jIPOeskewME.")
-    st.markdown("Here's the slideshow used in the video: https://docs.google.com/presentation/d/1tQ2sYysGiEH8UfrWaAOD-ggDFwBp7mRGoyiaZViza7E/edit?usp=sharing.")
+    st.markdown("Here's a video that explains how Computerpreter works as well as why Computerpreter stands out: https://youtu.be/jIPOeskewME!")
+    st.markdown("Here's the slideshow used in the video: https://docs.google.com/presentation/d/1tQ2sYysGiEH8UfrWaAOD-ggDFwBp7mRGoyiaZViza7E/edit?usp=sharing!")
+    st.markdown("Here's a research paper written about Computerpreter: https://docs.google.com/document/d/1W1qUcp0b5JO8nVbPvNwcDe_E6gxKtxKbMr_LEGp5OMQ/edit?usp=sharing!")
+    st.markdown("Here's our Github code that runs Computerpreter on the cloud: https://github.com/FooStoch/ASL_Signs_Detection!")
+    
+    st.header("Accolades and Awards")
+    st.markdown("Computerpreter was named the Congressional App Challenge (CAC) Top Apps West Region Winner: https://www.congressionalappchallenge.us/2025-winners/!")
+    st.markdown("Computerpreter won 5th place in the World AI Competition for Youth (WAICY): https://waicy-cdn.wholeren.cn/wp-content/uploads/2025/12/WAICY-2025-Winner-Announcement-Global-4.pdf!")
+    st.markdown("Computerpreter won 3rd place in the High School Utah Entrepreneurship Challenge (HSUEC) and $3,100: https://lassonde.utah.edu/hsuec!")
     st.caption("Navigation: use the top-left menu to return to the main app.")
     st.stop()
 # --- end navigation ---
