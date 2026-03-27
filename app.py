@@ -501,7 +501,7 @@ with left_col:
 with right_col:
     st.markdown("### Speech-to-Text")
     # Bold hint placed under the title as requested
-    st.markdown("**Hit $\\color{orange}{\\boxed{\\text{Reset}}}$ when transcription is finished to save memory!**")
+    st.markdown("**Hit $\\color{red}{\\boxed{\\text{Reset}}}$ when transcription is finished to save memory!**")
 
     # Prefer the installed package API (if available). If not, fall back to the local component build.
     try:
