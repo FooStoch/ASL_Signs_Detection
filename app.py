@@ -408,7 +408,7 @@ def stop_dynamic():
                             "Content-Type": "application/json",
                         },
                         data=json.dumps({
-                            "model": "stepfun/step-3.5-flash:free",
+                            "model": "nvidia/nemotron-3-super-120b-a12b:free",
                             "messages": [
                                 {
                                     "role": "user",
