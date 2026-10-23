@@ -16,6 +16,6 @@ Computerpreter targets the massive communication gap facing 11 million Deaf and 
 
 Our Streamlit app is free on the cloud! It needs `model.p` for the random forest classifier for fingerspelling detection and `best_model.pth` for the RNN for dynamic sign recognition.
 
-`best_model.pth` is the result of the data preprocessing and training pipeline, made of `ms-asl-wlasl-video-landmark-extractor.ipynb` and `ms-asl-wlasl-video-detection-model.ipynb`.
+`best_model.pth` is the result of the data preprocessing and training pipeline, made of `ms-asl-wlasl-video-landmark-extractor.ipynb` and `ms-asl-wlasl-video-detection-model.ipynb` in `train_pipeline` folder.
 
 `asl_inference.py` is mandatory for running the code. It is what the web app is based on.
