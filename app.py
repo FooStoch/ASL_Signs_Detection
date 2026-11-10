@@ -408,7 +408,7 @@ def stop_dynamic():
                             "Content-Type": "application/json",
                         },
                         data=json.dumps({
-                            "model": "nvidia/nemotron-3-super-120b-a12b:free",
+                            "model": "nvidia/nemotron-3.5-lightning:free",
                             "messages": [
                                 {
                                     "role": "user",
